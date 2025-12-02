@@ -1,0 +1,5 @@
+{
+  "name": "ClassSync",
+  "description": "A comprehensive classroom management system featuring role-based access, attendance tracking, finance transparency, shared tasks, and automated verification flows.",
+  "requestFramePermissions": []
+}

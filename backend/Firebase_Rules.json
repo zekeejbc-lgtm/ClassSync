@@ -1,0 +1,122 @@
+{
+  "rules": {
+    "users": {
+      ".read": true,
+      "$userId": {
+        ".write": "$userId === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'username', 'email', 'role', 'fullName', 'status'])",
+        "password": {
+          ".read": false,
+          ".write": "$userId === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'Admin'"
+        }
+      }
+    },
+    
+    "todos": {
+      ".read": true,
+      "$todoId": {
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['id', 'title', 'isCompleted', 'type', 'createdBy'])"
+      }
+    },
+    
+    "transactions": {
+      ".read": "root.child('users').child(auth.uid).child('role').val() === 'Admin' || root.child('users').child(auth.uid).child('role').val() === 'Treasurer' || root.child('users').child(auth.uid).child('role').val() === 'Auditor'",
+      ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin' || root.child('users').child(auth.uid).child('role').val() === 'Treasurer'"
+    },
+    
+    "attendance": {
+      ".read": true,
+      "$dateId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() !== 'Student' && root.child('users').child(auth.uid).child('role').val() !== 'Guest'"
+      }
+    },
+    
+    "logs": {
+      ".read": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+      ".write": "auth != null"
+    },
+    
+    "announcements": {
+      ".read": true,
+      "$announcementId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() !== 'Student' && root.child('users').child(auth.uid).child('role').val() !== 'Guest'"
+      }
+    },
+    
+    "schedule": {
+      ".read": true,
+      ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin' || root.child('users').child(auth.uid).child('role').val() === 'Secretary'"
+    },
+    
+    "settings": {
+      ".read": true,
+      ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'"
+    },
+    
+    "album": {
+      ".read": true,
+      "$photoId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin' || root.child('users').child(auth.uid).child('role').val() === 'Internal P.I.O' || root.child('users').child(auth.uid).child('role').val() === 'External P.I.O'"
+      }
+    },
+    
+    "achievements": {
+      ".read": true,
+      "$achievementId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() !== 'Student' && root.child('users').child(auth.uid).child('role').val() !== 'Guest'"
+      }
+    },
+    
+    "excuses": {
+      ".read": true,
+      "$excuseId": {
+        ".write": "(auth != null && newData.child('studentId').val() === auth.uid) || root.child('users').child(auth.uid).child('role').val() !== 'Student'"
+      }
+    },
+    
+    "complaints": {
+      ".read": true,
+      "$complaintId": {
+        ".write": "(auth != null && newData.child('studentId').val() === auth.uid) || root.child('users').child(auth.uid).child('role').val() === 'Admin'"
+      }
+    },
+    
+    "feedback": {
+      ".read": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+      ".write": true
+    },
+    
+    "campaigns": {
+      ".read": true,
+      "$campaignId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin' || root.child('users').child(auth.uid).child('role').val() === 'Treasurer'"
+      }
+    },
+    
+    "journal": {
+      "$userId": {
+        ".read": "$userId === auth.uid",
+        ".write": "$userId === auth.uid"
+      }
+    },
+    
+    "otp_codes": {
+      ".read": false,
+      ".write": true,
+      "$otpId": {
+        ".validate": "newData.hasChildren(['email', 'code', 'expiresAt', 'type'])"
+      }
+    },
+    
+    "pending_registrations": {
+      ".read": false,
+      ".write": true
+    },
+    
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

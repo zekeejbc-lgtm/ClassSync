@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, UserRole } from '../types';
 import { login, registerUser, getSettings } from '../services/dataService';
-import { Lock, User as UserIcon, ShieldAlert, ArrowRight, Home } from 'lucide-react';
+import { Lock, User as UserIcon, ShieldAlert, ArrowRight, Home, Eye, EyeOff } from 'lucide-react';
 import Registration from './Registration';
 import { useToast } from './ui/Toast';
 
@@ -18,6 +18,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   // Login State
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   // Forgot Password State
@@ -41,7 +42,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = login(loginId, loginPass);
+    const user = login(loginId.trim(), loginPass.trim());
     if (user) {
       onLogin(user);
       navigate('/dashboard');
@@ -117,7 +118,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               </button>
           </div>
           <div className="relative z-10 flex flex-col items-center mt-2">
-            <img src={logoUrl} alt="Logo" className="w-20 h-20 rounded-full border-4 border-amber-600 mb-4 shadow-lg object-cover bg-white" />
+            {logoUrl && <img src={logoUrl} alt="Logo" className="w-20 h-20 rounded-full border-4 border-amber-600 mb-4 shadow-lg object-cover bg-white" />}
             <h1 className="text-xl font-bold font-display text-amber-50 tracking-tight leading-snug">{appName}</h1>
             <p className="text-amber-200/80 text-xs mt-1 uppercase tracking-wider font-semibold">Student Portal</p>
           </div>
@@ -157,13 +158,20 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 w-5 h-5" />
                     <input 
-                      type="password" 
+                      type={showPassword ? "text" : "password"} 
                       required
-                      className="w-full pl-10 pr-4 py-2.5 border-2 border-stone-300 dark:border-stone-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white dark:bg-stone-700 dark:text-white"
+                      className="w-full pl-10 pr-12 py-2.5 border-2 border-stone-300 dark:border-stone-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white dark:bg-stone-700 dark:text-white"
                       placeholder="Enter password"
                       value={loginPass}
                       onChange={(e) => setLoginPass(e.target.value)}
                     />
+                    <button 
+                      type="button" 
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
                   </div>
                 </div>
                 

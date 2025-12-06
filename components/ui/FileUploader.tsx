@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Upload, X, Loader2, Image as ImageIcon, FileText, CheckCircle } from 'lucide-react';
-import { uploadMedia } from '../../services/dataService';
+import { uploadMedia, uploadWithAction } from '../../services/dataService';
 import { useToast } from './Toast';
 
 interface FileUploaderProps {
@@ -9,9 +9,10 @@ interface FileUploaderProps {
   initialUrl?: string;
   accept?: string;
   label?: string;
+  uploadAction?: string; // Optional custom upload action for GAS
 }
 
-export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, initialUrl, accept = "image/*", label = "Upload File" }) => {
+export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, initialUrl, accept = "image/*", label = "Upload File", uploadAction }) => {
   const { showToast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [preview, setPreview] = useState<string>(initialUrl || '');
@@ -29,7 +30,10 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, initialUrl
 
     setIsUploading(true);
     try {
-        const url = await uploadMedia(file);
+        // Use custom upload action if provided, otherwise use generic uploadMedia
+        const url = uploadAction 
+            ? await uploadWithAction(file, uploadAction)
+            : await uploadMedia(file);
         setPreview(url);
         onUpload(url);
         showToast('Upload successful!', 'success');

@@ -94,6 +94,14 @@
       }
     },
     
+    "applications": {
+      ".read": true,
+      "$appId": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['id','studentId','universityEmail','fullName','status','submittedAt'])"
+      }
+    },
+    
     "journal": {
       "$userId": {
         ".read": "$userId === auth.uid",
@@ -112,6 +120,78 @@
     "pending_registrations": {
       ".read": false,
       ".write": true
+    },
+    
+    "schools": {
+      ".read": true,
+      "$schoolId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'name', 'address', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "departments": {
+      ".read": true,
+      "$departmentId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'schoolId', 'type', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "colleges": {
+      ".read": true,
+      "$collegeId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'departmentId', 'schoolId', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "programs": {
+      ".read": true,
+      "$programId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'collegeId', 'departmentId', 'schoolId', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "majors": {
+      ".read": true,
+      "$majorId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'programId', 'collegeId', 'departmentId', 'schoolId', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "tracks": {
+      ".read": true,
+      "$trackId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'departmentId', 'schoolId', 'type', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "strands": {
+      ".read": true,
+      "$strandId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'trackId', 'departmentId', 'schoolId', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "yearLevels": {
+      ".read": true,
+      "$yearLevelId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'departmentId', 'schoolId', 'name', 'order', 'createdAt', 'createdBy', 'isActive'])"
+      }
+    },
+    
+    "sections": {
+      ".read": true,
+      "$sectionId": {
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'Admin'",
+        ".validate": "newData.hasChildren(['id', 'yearLevelId', 'departmentId', 'schoolId', 'name', 'createdAt', 'createdBy', 'isActive'])"
+      }
     },
     
     "$other": {

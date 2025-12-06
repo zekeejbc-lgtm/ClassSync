@@ -1,13 +1,21 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
     User, Mail, Phone, MapPin, School, Upload, Plus, X, Check, 
     Loader2, AlertCircle, Eye, EyeOff, ChevronRight, ChevronLeft,
     Globe, Github, Linkedin, Facebook, Instagram, Twitter, Link as LinkIcon,
     UserCircle, Building, GraduationCap, Heart, Lock, CheckCircle2,
-    Home, ArrowLeft
+    Home, ArrowLeft, RotateCcw, XCircle, ChevronDown, Search
 } from 'lucide-react';
 import { useToast } from './ui/Toast';
+import { 
+    getSchools, getDepartments, getColleges, getPrograms, getMajors,
+    getTracks, getStrands, getYearLevels, getSections
+} from '../services/dataService';
+import { 
+    School as SchoolType, Department, College, Program, Major, 
+    Track, Strand, YearLevel, Section, DepartmentType 
+} from '../types';
 
 // Social link detection
 const SOCIAL_PLATFORMS: Record<string, { icon: React.ReactNode; name: string; pattern: RegExp }> = {
@@ -48,6 +56,17 @@ interface RegistrationData {
     city: string;
     barangay: string;
     purokHouseNumber: string;
+    // School structure IDs (for linking to school structure data)
+    schoolId: string;
+    departmentId: string;
+    collegeId: string;
+    programId: string;
+    majorId: string;
+    trackId: string;
+    strandId: string;
+    yearLevelId: string;
+    sectionId: string;
+    // Display values (text fallback)
     school: string;
     college: string;
     program: string;
@@ -173,6 +192,135 @@ const SelectField: React.FC<{
     </div>
 );
 
+// Autocomplete Select Field for school structure
+const AutocompleteField: React.FC<{
+    label: string;
+    value: string;
+    displayValue: string;
+    options: { id: string; name: string }[];
+    onChange: (id: string, name: string) => void;
+    required?: boolean;
+    icon?: React.ReactNode;
+    error?: string;
+    placeholder?: string;
+    disabled?: boolean;
+    allowCustom?: boolean;
+}> = ({ label, value, displayValue, options, onChange, required, icon, error, placeholder, disabled, allowCustom }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    
+    const filteredOptions = useMemo(() => {
+        if (!searchTerm) return options;
+        return options.filter(opt => 
+            opt.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [options, searchTerm]);
+    
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+                setSearchTerm('');
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    
+    const handleSelect = (opt: { id: string; name: string }) => {
+        onChange(opt.id, opt.name);
+        setIsOpen(false);
+        setSearchTerm('');
+    };
+    
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setSearchTerm(val);
+        if (!isOpen) setIsOpen(true);
+        // If custom values allowed and typing, update the display value
+        if (allowCustom) {
+            onChange('', val);
+        }
+    };
+    
+    const handleInputFocus = () => {
+        if (!disabled && options.length > 0) {
+            setIsOpen(true);
+        }
+    };
+    
+    return (
+        <div className="w-full" ref={dropdownRef}>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+                {label} {required && <span className="text-red-500">*</span>}
+            </label>
+            <div className="relative">
+                {icon && (
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none z-10">
+                        {icon}
+                    </div>
+                )}
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={isOpen ? searchTerm : displayValue}
+                    onChange={handleInputChange}
+                    onFocus={handleInputFocus}
+                    placeholder={placeholder || `Select ${label}...`}
+                    disabled={disabled}
+                    className={`w-full ${icon ? 'pl-10' : 'pl-4'} pr-10 py-2.5 border-2 ${error ? 'border-red-400' : 'border-stone-300 dark:border-stone-600 focus:border-amber-500'} rounded-lg focus:ring-2 focus:ring-amber-200 dark:focus:ring-amber-800 outline-none transition-all bg-white dark:bg-stone-800 dark:text-white text-sm ${disabled ? 'bg-stone-100 dark:bg-stone-900 cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {displayValue && !disabled && (
+                        <button
+                            type="button"
+                            onClick={() => { onChange('', ''); setSearchTerm(''); }}
+                            className="text-stone-400 hover:text-red-500 p-0.5"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
+                    <ChevronDown size={16} className={`text-stone-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </div>
+                
+                {/* Dropdown */}
+                {isOpen && !disabled && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-stone-800 border-2 border-stone-300 dark:border-stone-600 rounded-lg shadow-xl max-h-48 overflow-auto">
+                        {filteredOptions.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-stone-500 text-center">
+                                {options.length === 0 ? 'No options available' : 'No matches found'}
+                                {allowCustom && searchTerm && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSelect({ id: '', name: searchTerm })}
+                                        className="block w-full mt-2 text-amber-600 hover:text-amber-700"
+                                    >
+                                        Use "{searchTerm}"
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            filteredOptions.map(opt => (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => handleSelect(opt)}
+                                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-amber-50 dark:hover:bg-stone-700 transition-colors ${value === opt.id ? 'bg-amber-100 dark:bg-stone-700 text-amber-700 dark:text-amber-400 font-medium' : 'text-stone-700 dark:text-stone-300'}`}
+                                >
+                                    {opt.name}
+                                </button>
+                            ))
+                        )}
+                    </div>
+                )}
+            </div>
+            {error && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={12} /> {error}</p>}
+        </div>
+    );
+};
+
 // Progress Toast Component - Positioned bottom-right on desktop, center-bottom on mobile
 const ProgressToast: React.FC<{
     steps: ProgressStep[];
@@ -257,9 +405,23 @@ const ProgressToast: React.FC<{
 
 export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel, logoUrl, appName }) => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { showToast } = useToast();
     
-    const [currentStep, setCurrentStep] = useState(1);
+    // Check if this is a retry from a rejected application
+    const retryState = location.state as { 
+        retryApplication?: any; 
+        attemptNumber?: number;
+        fieldsToCorrect?: { field: string; issue: string }[];
+        correctionMode?: boolean;
+    } | null;
+    const isRetryMode = !!retryState?.retryApplication;
+    const retryApp = retryState?.retryApplication;
+    const attemptNumber = retryState?.attemptNumber || 1;
+    const fieldsToCorrect = retryState?.fieldsToCorrect || [];
+    const isCorrectionMode = retryState?.correctionMode && fieldsToCorrect.length > 0;
+    
+    const [currentStep, setCurrentStep] = useState(isCorrectionMode ? 4 : 1); // Step 4 = correction only mode
     const [isLoading, setIsLoading] = useState(false);
     const [otpCode, setOtpCode] = useState(['', '', '', '', '', '']);
     const [generatedOtp, setGeneratedOtp] = useState('');
@@ -270,35 +432,359 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
     const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([]);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     
+    // OTP Timer State
+    const [otpTimer, setOtpTimer] = useState(0);
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+    useEffect(() => {
+        if (otpTimer > 0) {
+            timerRef.current = setTimeout(() => setOtpTimer(otpTimer - 1), 1000);
+        }
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
+    }, [otpTimer]);
+
     const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
-    const [formData, setFormData] = useState<RegistrationData>({
-        studentId: '',
-        universityEmail: '',
-        fullName: '',
-        contactNumber: '',
-        personalEmail: '',
-        avatar: '',
-        avatarFileId: '',
-        avatarPreview: '',
-        socialLinks: [],
-        province: '',
-        city: '',
-        barangay: '',
-        purokHouseNumber: '',
-        school: '',
-        college: '',
-        program: '',
-        major: '',
-        yearLevel: '',
-        section: '1SF',
-        emergencyPerson: '',
-        emergencyContact: '',
-        username: '',
-        password: '',
-        confirmPassword: ''
+    const [formData, setFormData] = useState<RegistrationData>(() => {
+        // Pre-fill from retry application if available
+        if (retryApp) {
+            return {
+                studentId: retryApp.studentId || '',
+                universityEmail: retryApp.universityEmail || '',
+                fullName: retryApp.fullName || '',
+                contactNumber: retryApp.contactNumber || '',
+                personalEmail: retryApp.personalEmail || '',
+                avatar: retryApp.avatar || '',
+                avatarFileId: retryApp.avatarFileId || '',
+                avatarPreview: retryApp.avatar || '',
+                socialLinks: retryApp.socialLinks || [],
+                province: retryApp.province || '',
+                city: retryApp.city || '',
+                barangay: retryApp.barangay || '',
+                purokHouseNumber: retryApp.purokHouseNumber || '',
+                // School structure IDs
+                schoolId: retryApp.schoolId || '',
+                departmentId: retryApp.departmentId || '',
+                collegeId: retryApp.collegeId || '',
+                programId: retryApp.programId || '',
+                majorId: retryApp.majorId || '',
+                trackId: retryApp.trackId || '',
+                strandId: retryApp.strandId || '',
+                yearLevelId: retryApp.yearLevelId || '',
+                sectionId: retryApp.sectionId || '',
+                // Display values
+                school: retryApp.school || '',
+                college: retryApp.college || '',
+                program: retryApp.program || '',
+                major: retryApp.major || '',
+                yearLevel: retryApp.yearLevel || '',
+                section: retryApp.section || '',
+                emergencyPerson: retryApp.emergencyPerson || '',
+                emergencyContact: retryApp.emergencyContact || '',
+                username: retryApp.username || '',
+                password: '', // Don't pre-fill password
+                confirmPassword: ''
+            };
+        }
+        return {
+            studentId: '',
+            universityEmail: '',
+            fullName: '',
+            contactNumber: '',
+            personalEmail: '',
+            avatar: '',
+            avatarFileId: '',
+            avatarPreview: '',
+            socialLinks: [],
+            province: '',
+            city: '',
+            barangay: '',
+            purokHouseNumber: '',
+            // School structure IDs
+            schoolId: '',
+            departmentId: '',
+            collegeId: '',
+            programId: '',
+            majorId: '',
+            trackId: '',
+            strandId: '',
+            yearLevelId: '',
+            sectionId: '',
+            // Display values
+            school: '',
+            college: '',
+            program: '',
+            major: '',
+            yearLevel: '',
+            section: '',
+            emergencyPerson: '',
+            emergencyContact: '',
+            username: '',
+            password: '',
+            confirmPassword: ''
+        };
     });
+    
+    // School structure data state
+    const [schoolStructure, setSchoolStructure] = useState<{
+        schools: SchoolType[];
+        departments: Department[];
+        colleges: College[];
+        programs: Program[];
+        majors: Major[];
+        tracks: Track[];
+        strands: Strand[];
+        yearLevels: YearLevel[];
+        sections: Section[];
+    }>({
+        schools: [],
+        departments: [],
+        colleges: [],
+        programs: [],
+        majors: [],
+        tracks: [],
+        strands: [],
+        yearLevels: [],
+        sections: []
+    });
+    
+    // Load school structure data on mount
+    useEffect(() => {
+        setSchoolStructure({
+            schools: getSchools(),
+            departments: getDepartments(),
+            colleges: getColleges(),
+            programs: getPrograms(),
+            majors: getMajors(),
+            tracks: getTracks(),
+            strands: getStrands(),
+            yearLevels: getYearLevels(),
+            sections: getSections()
+        });
+    }, []);
+    
+    // Determine department type based on selected department
+    const selectedDepartment = useMemo(() => {
+        return schoolStructure.departments.find(d => d.id === formData.departmentId);
+    }, [schoolStructure.departments, formData.departmentId]);
+    
+    const departmentType = selectedDepartment?.type;
+    
+    // Filter cascading options based on selections
+    const filteredDepartments = useMemo(() => {
+        if (!formData.schoolId) return [];
+        return schoolStructure.departments.filter(d => d.schoolId === formData.schoolId);
+    }, [schoolStructure.departments, formData.schoolId]);
+    
+    const filteredColleges = useMemo(() => {
+        if (!formData.departmentId) return [];
+        return schoolStructure.colleges.filter(c => c.departmentId === formData.departmentId);
+    }, [schoolStructure.colleges, formData.departmentId]);
+    
+    const filteredPrograms = useMemo(() => {
+        if (!formData.collegeId) return [];
+        return schoolStructure.programs.filter(p => p.collegeId === formData.collegeId);
+    }, [schoolStructure.programs, formData.collegeId]);
+    
+    const filteredMajors = useMemo(() => {
+        if (!formData.programId) return [];
+        return schoolStructure.majors.filter(m => m.programId === formData.programId);
+    }, [schoolStructure.majors, formData.programId]);
+    
+    const filteredTracks = useMemo(() => {
+        if (!formData.departmentId) return [];
+        return schoolStructure.tracks.filter(t => t.departmentId === formData.departmentId);
+    }, [schoolStructure.tracks, formData.departmentId]);
+    
+    const filteredStrands = useMemo(() => {
+        if (!formData.trackId) return [];
+        return schoolStructure.strands.filter(s => s.trackId === formData.trackId);
+    }, [schoolStructure.strands, formData.trackId]);
+    
+    const filteredYearLevels = useMemo(() => {
+        // For Tertiary: filter by programId (or majorId if available)
+        // For Senior High: filter by strandId
+        // For Junior High: filter by departmentId
+        if (departmentType === 'TERTIARY') {
+            if (formData.majorId) {
+                return schoolStructure.yearLevels.filter(y => y.majorId === formData.majorId);
+            }
+            if (formData.programId) {
+                return schoolStructure.yearLevels.filter(y => y.programId === formData.programId);
+            }
+        } else if (departmentType === 'SENIOR_HIGH') {
+            if (formData.strandId) {
+                return schoolStructure.yearLevels.filter(y => y.strandId === formData.strandId);
+            }
+        } else if (departmentType === 'JUNIOR_HIGH') {
+            if (formData.departmentId) {
+                return schoolStructure.yearLevels.filter(y => y.departmentId === formData.departmentId);
+            }
+        }
+        return [];
+    }, [schoolStructure.yearLevels, departmentType, formData.programId, formData.majorId, formData.strandId, formData.departmentId]);
+    
+    const filteredSections = useMemo(() => {
+        if (!formData.yearLevelId) return [];
+        return schoolStructure.sections.filter(s => s.yearLevelId === formData.yearLevelId);
+    }, [schoolStructure.sections, formData.yearLevelId]);
+    
+    // Handle school structure selection changes (cascading reset)
+    const handleSchoolSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            schoolId: id,
+            school: name,
+            departmentId: '',
+            collegeId: '',
+            college: '',
+            programId: '',
+            program: '',
+            majorId: '',
+            major: '',
+            trackId: '',
+            strandId: '',
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleDepartmentSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            departmentId: id,
+            collegeId: '',
+            college: '',
+            programId: '',
+            program: '',
+            majorId: '',
+            major: '',
+            trackId: '',
+            strandId: '',
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleCollegeSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            collegeId: id,
+            college: name,
+            programId: '',
+            program: '',
+            majorId: '',
+            major: '',
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleProgramSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            programId: id,
+            program: name,
+            majorId: '',
+            major: '',
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleMajorSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            majorId: id,
+            major: name,
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleTrackSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            trackId: id,
+            strandId: '',
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleStrandSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            strandId: id,
+            yearLevelId: '',
+            yearLevel: '',
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleYearLevelSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            yearLevelId: id,
+            yearLevel: name,
+            sectionId: '',
+            section: ''
+        }));
+    };
+    
+    const handleSectionSelect = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            sectionId: id,
+            section: name
+        }));
+    };
+
+    // Listen for background application sync failures and provide retry action
+    useEffect(() => {
+        const handler = async (e: any) => {
+            const failedId = e?.detail?.id as string | undefined;
+            if (!failedId) return;
+
+            showToast('Failed to link application to cloud', 'warning', 'Retry sync', async () => {
+                try {
+                    const [{ getApplicationById }, { dbRefs, dbHelpers }] = await Promise.all([
+                        import('../services/dataService'),
+                        import('../services/firebase')
+                    ]);
+                    const app = getApplicationById(failedId);
+                    if (!app) {
+                        showToast('Local application not found', 'error');
+                        return;
+                    }
+                    await dbHelpers.setData(dbRefs.application(app.id), app);
+                    showToast('Application synced to Firebase', 'success');
+                } catch (err) {
+                    console.error('Retry sync error:', err);
+                    showToast('Retry failed. Check Firebase rules or network.', 'error');
+                }
+            });
+        };
+
+        window.addEventListener('applicationSyncFailed', handler as EventListener);
+        return () => window.removeEventListener('applicationSyncFailed', handler as EventListener);
+    }, [showToast]);
 
     // Validation functions
     const validateDuplicates = useCallback(async (): Promise<ValidationResult[]> => {
@@ -493,9 +979,9 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
     // Submit application using local dataService
     const submitApplicationData = async (avatarUrl?: string, avatarFileId?: string): Promise<{ success: boolean; application?: any; error?: string }> => {
         try {
-            const { submitApplication } = await import('../services/dataService');
+            const { submitApplication, resubmitApplication } = await import('../services/dataService');
             
-            const application = submitApplication({
+            const applicationData = {
                 studentId: formData.studentId,
                 universityEmail: formData.universityEmail,
                 fullName: formData.fullName,
@@ -518,7 +1004,20 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                 section: formData.section || '1SF',
                 emergencyPerson: formData.emergencyPerson,
                 emergencyContact: formData.emergencyContact
-            });
+            };
+            
+            let application;
+            
+            if (isRetryMode && retryApp?.id) {
+                // Resubmit existing rejected application
+                application = resubmitApplication(retryApp.id, applicationData as any, attemptNumber);
+                if (!application) {
+                    return { success: false, error: 'Failed to resubmit application. It may no longer be available.' };
+                }
+            } else {
+                // New application
+                application = submitApplication(applicationData);
+            }
             
             return { 
                 success: true, 
@@ -526,7 +1025,9 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                     id: application.id,
                     studentId: formData.studentId,
                     fullName: formData.fullName,
-                    status: 'pending'
+                    status: 'pending',
+                    isRetry: isRetryMode,
+                    attemptNumber: isRetryMode ? attemptNumber : 1
                 }
             };
         } catch (error) {
@@ -612,6 +1113,46 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                 setIsLoading(false);
                 return;
             }
+
+            // --- NEW: Check for duplicates (Users & Applications) ---
+            const { getUsers, checkExistingApplication } = await import('../services/dataService');
+            const users = getUsers();
+
+            // 1. Check if Student ID is already registered
+            const existingUserById = users.find(u => u.studentId === formData.studentId);
+            if (existingUserById) {
+                setFieldErrors({ studentId: 'This Student ID is already registered.' });
+                showToast('Account already exists for this Student ID', 'error');
+                setIsLoading(false);
+                return;
+            }
+
+            // 2. Check if Email is already registered
+            const existingUserByEmail = users.find(u => u.email === formData.universityEmail);
+            if (existingUserByEmail) {
+                setFieldErrors({ universityEmail: 'This email is already registered.' });
+                showToast('Account already exists for this email', 'error');
+                setIsLoading(false);
+                return;
+            }
+
+            // 3. Check for pending applications
+            const existingApp = checkExistingApplication(formData.studentId, formData.universityEmail);
+            if (existingApp) {
+                const isIdMatch = existingApp.studentId === formData.studentId;
+                const msg = isIdMatch 
+                    ? 'An application with this Student ID is already pending.' 
+                    : 'An application with this email is already pending.';
+                
+                setFieldErrors(isIdMatch 
+                    ? { studentId: msg }
+                    : { universityEmail: msg }
+                );
+                showToast(msg, 'warning');
+                setIsLoading(false);
+                return;
+            }
+            // -------------------------------------------------------
             
             // Send OTP
             const otpResult = await sendOTPToEmail(formData.universityEmail);
@@ -627,8 +1168,31 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
             }
             
             showToast('Verification code sent to your email!', 'success');
+            setOtpTimer(60); // Start 60s timer
             setCurrentStep(2);
         } catch (err) {
+            showToast('Network error. Please try again.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleResendOtp = async () => {
+        if (otpTimer > 0) return;
+        
+        setIsLoading(true);
+        try {
+            const otpResult = await sendOTPToEmail(formData.universityEmail);
+            if (otpResult.success) {
+                showToast('New verification code sent!', 'success');
+                setOtpTimer(60);
+                if (otpResult.devOtp) {
+                    showToast(`[DEV MODE] Your OTP is: ${otpResult.devOtp}`, 'info');
+                }
+            } else {
+                showToast(otpResult.error || 'Failed to resend OTP', 'error');
+            }
+        } catch (error) {
             showToast('Network error. Please try again.', 'error');
         } finally {
             setIsLoading(false);
@@ -789,6 +1353,7 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
             { id: 'validate', label: 'Validating information', status: 'pending' },
             { id: 'upload', label: 'Uploading profile picture', status: 'pending' },
             { id: 'submit', label: 'Submitting application', status: 'pending' },
+            { id: 'cloud', label: 'Linking to Cloud (Firebase)', status: 'pending' },
             { id: 'confirm', label: 'Confirming submission', status: 'pending' }
         ];
         
@@ -833,6 +1398,32 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                 return;
             }
             updateStep('submit', 'success');
+
+            // Step 3.5: Verify it reached Firebase (best-effort)
+            updateStep('cloud', 'loading');
+            try {
+                const { dbRefs, dbHelpers } = await import('../services/firebase');
+                const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+                let verified = false;
+                for (let i = 0; i < 10; i++) { // up to ~5s
+                    const fbItem = await dbHelpers.getOne<any>(dbRefs.application(result.application.id));
+                    if (fbItem) { verified = true; break; }
+                    await wait(500);
+                }
+                if (verified) {
+                    updateStep('cloud', 'success');
+                } else {
+                    // Do not fail the whole flow; mark success with note
+                    setProgressSteps(prev => prev.map(s => 
+                        s.id === 'cloud' ? { ...s, status: 'success', label: 'Cloud sync pending (will appear shortly)' } : s
+                    ));
+                }
+            } catch (cloudErr) {
+                // Non-blocking; show as success but annotate
+                setProgressSteps(prev => prev.map(s => 
+                    s.id === 'cloud' ? { ...s, status: 'success', label: 'Cloud check skipped (offline or restricted)' } : s
+                ));
+            }
             
             // Step 4: Confirm
             updateStep('confirm', 'loading');
@@ -935,6 +1526,23 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                                 className="w-10 h-12 sm:w-12 sm:h-14 text-center text-xl sm:text-2xl font-bold border-2 border-stone-300 dark:border-stone-600 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white dark:bg-stone-700 dark:text-white"
                             />
                         ))}
+                    </div>
+                    
+                    <div className="text-center mt-4">
+                        {otpTimer > 0 ? (
+                            <p className="text-sm text-stone-500 dark:text-stone-400">
+                                Resend code in <span className="font-bold text-amber-600">{otpTimer}s</span>
+                            </p>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={handleResendOtp}
+                                disabled={isLoading}
+                                className="text-sm font-medium text-amber-600 hover:text-amber-700 hover:underline disabled:opacity-50"
+                            >
+                                Resend Verification Code
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1129,71 +1737,254 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                 </div>
             </div>
             
-            {/* School Info Card */}
+            {/* School Info Card - Cascading Dropdowns */}
             <div className="bg-white dark:bg-stone-800 rounded-xl border-2 border-stone-200 dark:border-stone-700 p-4 sm:p-6 shadow-sm">
                 <h3 className="font-bold text-stone-800 dark:text-white flex items-center gap-2 mb-4 pb-3 border-b border-stone-200 dark:border-stone-700">
                     <GraduationCap size={20} className="text-amber-600" /> School Information
                 </h3>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* School Selection */}
                     <div className="sm:col-span-2">
-                        <InputField
+                        <AutocompleteField
                             label="School/University"
-                            name="school"
-                            value={formData.school}
-                            onChange={handleChange}
+                            value={formData.schoolId}
+                            displayValue={formData.school}
+                            options={schoolStructure.schools.map(s => ({ id: s.id, name: s.name }))}
+                            onChange={handleSchoolSelect}
                             required
                             icon={<School size={18} />}
                             error={fieldErrors.school}
+                            placeholder="Search or select school..."
+                            allowCustom
                         />
                     </div>
-                    <InputField
-                        label="College"
-                        name="college"
-                        value={formData.college}
-                        onChange={handleChange}
-                        required
-                        icon={<Building size={18} />}
-                        error={fieldErrors.college}
-                    />
-                    <InputField
-                        label="Program"
-                        name="program"
-                        value={formData.program}
-                        onChange={handleChange}
-                        placeholder="BS Computer Science"
-                        required
-                        error={fieldErrors.program}
-                    />
-                    <InputField
-                        label="Major"
-                        name="major"
-                        value={formData.major}
-                        onChange={handleChange}
-                    />
-                    <SelectField
-                        label="Year Level"
-                        name="yearLevel"
-                        value={formData.yearLevel}
-                        onChange={handleChange}
-                        required
-                        icon={<GraduationCap size={18} />}
-                        options={[
-                            { value: '1st Year', label: '1st Year' },
-                            { value: '2nd Year', label: '2nd Year' },
-                            { value: '3rd Year', label: '3rd Year' },
-                            { value: '4th Year', label: '4th Year' },
-                            { value: '5th Year', label: '5th Year' },
-                        ]}
-                        error={fieldErrors.yearLevel}
-                    />
-                    <InputField
-                        label="Section"
-                        name="section"
-                        value={formData.section}
-                        onChange={handleChange}
-                        placeholder="1SF"
-                    />
+                    
+                    {/* Department Selection (if school selected and has departments) */}
+                    {formData.schoolId && filteredDepartments.length > 0 && (
+                        <div className="sm:col-span-2">
+                            <AutocompleteField
+                                label="Department Type"
+                                value={formData.departmentId}
+                                displayValue={selectedDepartment?.name || ''}
+                                options={filteredDepartments.map(d => ({ 
+                                    id: d.id, 
+                                    name: `${d.name} (${d.type === 'TERTIARY' ? 'College/University' : d.type === 'SENIOR_HIGH' ? 'Senior High' : 'Junior High'})`
+                                }))}
+                                onChange={handleDepartmentSelect}
+                                required
+                                placeholder="Select department..."
+                            />
+                        </div>
+                    )}
+                    
+                    {/* TERTIARY PATH: College → Program → Major → Year → Section */}
+                    {departmentType === 'TERTIARY' && (
+                        <>
+                            <AutocompleteField
+                                label="College"
+                                value={formData.collegeId}
+                                displayValue={formData.college}
+                                options={filteredColleges.map(c => ({ id: c.id, name: c.name }))}
+                                onChange={handleCollegeSelect}
+                                required
+                                icon={<Building size={18} />}
+                                error={fieldErrors.college}
+                                placeholder="Select college..."
+                                disabled={!formData.departmentId}
+                                allowCustom
+                            />
+                            <AutocompleteField
+                                label="Program"
+                                value={formData.programId}
+                                displayValue={formData.program}
+                                options={filteredPrograms.map(p => ({ id: p.id, name: p.name }))}
+                                onChange={handleProgramSelect}
+                                required
+                                placeholder="Select program..."
+                                disabled={!formData.collegeId}
+                                error={fieldErrors.program}
+                                allowCustom
+                            />
+                            {filteredMajors.length > 0 && (
+                                <AutocompleteField
+                                    label="Major (Optional)"
+                                    value={formData.majorId}
+                                    displayValue={formData.major}
+                                    options={filteredMajors.map(m => ({ id: m.id, name: m.name }))}
+                                    onChange={handleMajorSelect}
+                                    placeholder="Select major..."
+                                    disabled={!formData.programId}
+                                    allowCustom
+                                />
+                            )}
+                            <AutocompleteField
+                                label="Year Level"
+                                value={formData.yearLevelId}
+                                displayValue={formData.yearLevel}
+                                options={filteredYearLevels.map(y => ({ id: y.id, name: y.name }))}
+                                onChange={handleYearLevelSelect}
+                                required
+                                icon={<GraduationCap size={18} />}
+                                placeholder="Select year level..."
+                                disabled={!formData.programId}
+                                error={fieldErrors.yearLevel}
+                                allowCustom
+                            />
+                            <AutocompleteField
+                                label="Section"
+                                value={formData.sectionId}
+                                displayValue={formData.section}
+                                options={filteredSections.map(s => ({ id: s.id, name: s.name }))}
+                                onChange={handleSectionSelect}
+                                placeholder="Select section..."
+                                disabled={!formData.yearLevelId}
+                                allowCustom
+                            />
+                        </>
+                    )}
+                    
+                    {/* SENIOR HIGH PATH: Track → Strand → Grade Level → Section */}
+                    {departmentType === 'SENIOR_HIGH' && (
+                        <>
+                            <AutocompleteField
+                                label="Track"
+                                value={formData.trackId}
+                                displayValue={schoolStructure.tracks.find(t => t.id === formData.trackId)?.name || ''}
+                                options={filteredTracks.map(t => ({ id: t.id, name: t.name }))}
+                                onChange={handleTrackSelect}
+                                required
+                                placeholder="Select track..."
+                                disabled={!formData.departmentId}
+                            />
+                            <AutocompleteField
+                                label="Strand"
+                                value={formData.strandId}
+                                displayValue={schoolStructure.strands.find(s => s.id === formData.strandId)?.name || ''}
+                                options={filteredStrands.map(s => ({ id: s.id, name: s.name }))}
+                                onChange={handleStrandSelect}
+                                required
+                                placeholder="Select strand..."
+                                disabled={!formData.trackId}
+                            />
+                            <AutocompleteField
+                                label="Grade Level"
+                                value={formData.yearLevelId}
+                                displayValue={formData.yearLevel}
+                                options={filteredYearLevels.map(y => ({ id: y.id, name: y.name }))}
+                                onChange={handleYearLevelSelect}
+                                required
+                                icon={<GraduationCap size={18} />}
+                                placeholder="Select grade level..."
+                                disabled={!formData.strandId}
+                                error={fieldErrors.yearLevel}
+                            />
+                            <AutocompleteField
+                                label="Section"
+                                value={formData.sectionId}
+                                displayValue={formData.section}
+                                options={filteredSections.map(s => ({ id: s.id, name: s.name }))}
+                                onChange={handleSectionSelect}
+                                placeholder="Select section..."
+                                disabled={!formData.yearLevelId}
+                            />
+                        </>
+                    )}
+                    
+                    {/* JUNIOR HIGH PATH: Grade Level → Section */}
+                    {departmentType === 'JUNIOR_HIGH' && (
+                        <>
+                            <AutocompleteField
+                                label="Grade Level"
+                                value={formData.yearLevelId}
+                                displayValue={formData.yearLevel}
+                                options={filteredYearLevels.map(y => ({ id: y.id, name: y.name }))}
+                                onChange={handleYearLevelSelect}
+                                required
+                                icon={<GraduationCap size={18} />}
+                                placeholder="Select grade level..."
+                                disabled={!formData.departmentId}
+                                error={fieldErrors.yearLevel}
+                            />
+                            <AutocompleteField
+                                label="Section"
+                                value={formData.sectionId}
+                                displayValue={formData.section}
+                                options={filteredSections.map(s => ({ id: s.id, name: s.name }))}
+                                onChange={handleSectionSelect}
+                                placeholder="Select section..."
+                                disabled={!formData.yearLevelId}
+                            />
+                        </>
+                    )}
+                    
+                    {/* Fallback for when no school structure exists - allow manual entry */}
+                    {(!formData.schoolId || (formData.schoolId && filteredDepartments.length === 0)) && (
+                        <>
+                            {!formData.schoolId && (
+                                <p className="sm:col-span-2 text-xs text-stone-500 dark:text-stone-400 italic">
+                                    Type a school name above or select from suggestions if available.
+                                </p>
+                            )}
+                            {formData.school && !formData.schoolId && (
+                                <>
+                                    <InputField
+                                        label="College"
+                                        name="college"
+                                        value={formData.college}
+                                        onChange={handleChange}
+                                        required
+                                        icon={<Building size={18} />}
+                                        error={fieldErrors.college}
+                                    />
+                                    <InputField
+                                        label="Program"
+                                        name="program"
+                                        value={formData.program}
+                                        onChange={handleChange}
+                                        placeholder="BS Computer Science"
+                                        required
+                                        error={fieldErrors.program}
+                                    />
+                                    <InputField
+                                        label="Major (Optional)"
+                                        name="major"
+                                        value={formData.major}
+                                        onChange={handleChange}
+                                    />
+                                    <SelectField
+                                        label="Year Level"
+                                        name="yearLevel"
+                                        value={formData.yearLevel}
+                                        onChange={handleChange}
+                                        required
+                                        icon={<GraduationCap size={18} />}
+                                        options={[
+                                            { value: '1st Year', label: '1st Year' },
+                                            { value: '2nd Year', label: '2nd Year' },
+                                            { value: '3rd Year', label: '3rd Year' },
+                                            { value: '4th Year', label: '4th Year' },
+                                            { value: '5th Year', label: '5th Year' },
+                                            { value: 'Grade 7', label: 'Grade 7' },
+                                            { value: 'Grade 8', label: 'Grade 8' },
+                                            { value: 'Grade 9', label: 'Grade 9' },
+                                            { value: 'Grade 10', label: 'Grade 10' },
+                                            { value: 'Grade 11', label: 'Grade 11' },
+                                            { value: 'Grade 12', label: 'Grade 12' },
+                                        ]}
+                                        error={fieldErrors.yearLevel}
+                                    />
+                                    <InputField
+                                        label="Section"
+                                        name="section"
+                                        value={formData.section}
+                                        onChange={handleChange}
+                                        placeholder="Section name"
+                                    />
+                                </>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
             
@@ -1309,6 +2100,190 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
         </form>
     );
 
+    // Field labels for display
+    const CORRECTION_FIELD_LABELS: Record<string, string> = {
+        studentId: 'Student ID',
+        universityEmail: 'University Email',
+        fullName: 'Full Name',
+        username: 'Username',
+        contactNumber: 'Contact Number',
+        personalEmail: 'Personal Email',
+        avatar: 'Profile Photo',
+        province: 'Province',
+        city: 'City/Municipality',
+        barangay: 'Barangay',
+        purokHouseNumber: 'Purok/House Number',
+        school: 'School/University',
+        college: 'College',
+        program: 'Program',
+        major: 'Major',
+        yearLevel: 'Year Level',
+        section: 'Section',
+        emergencyPerson: 'Emergency Contact Person',
+        emergencyContact: 'Emergency Contact Number'
+    };
+
+    // Handle correction submission
+    const handleCorrectionSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsLoading(true);
+        
+        try {
+            const { resubmitApplication } = await import('../services/dataService');
+            
+            // Build the updated data
+            const updatedData: any = {};
+            fieldsToCorrect.forEach(({ field }) => {
+                updatedData[field] = (formData as any)[field];
+            });
+            
+            // Resubmit with corrections
+            const result = resubmitApplication(retryApp.id, {
+                ...retryApp,
+                ...updatedData
+            }, attemptNumber);
+            
+            if (result) {
+                showToast('Your corrections have been submitted!', 'success');
+                // Navigate back to landing page
+                setTimeout(() => {
+                    navigate('/', { replace: true });
+                }, 1500);
+            } else {
+                showToast('Failed to submit corrections. Please try again.', 'error');
+            }
+        } catch (error) {
+            console.error('Correction submit error:', error);
+            showToast('An error occurred. Please try again.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Render correction-only mode (Step 4)
+    const renderCorrectionMode = () => (
+        <form onSubmit={handleCorrectionSubmit} className="space-y-6">
+            {/* Header Banner */}
+            <div className="bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-200 dark:border-amber-700 rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-amber-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <RotateCcw size={20} className="text-white" />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-amber-800 dark:text-amber-300">Correct Your Application</h3>
+                        <p className="text-sm text-amber-600 dark:text-amber-400">
+                            Please update the {fieldsToCorrect.length} field(s) below that need correction
+                        </p>
+                        <p className="text-xs text-amber-500 dark:text-amber-500 mt-1">
+                            Attempt {attemptNumber} • Student ID: {retryApp?.studentId}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Fields to Correct */}
+            <div className="bg-white dark:bg-stone-800 rounded-xl border-2 border-stone-200 dark:border-stone-700 p-4 sm:p-6 shadow-sm">
+                <h3 className="font-bold text-stone-800 dark:text-white flex items-center gap-2 mb-4 pb-3 border-b border-stone-200 dark:border-stone-700">
+                    <AlertCircle size={20} className="text-red-500" /> Fields Requiring Correction
+                </h3>
+                
+                <div className="space-y-4">
+                    {fieldsToCorrect.map(({ field, issue }) => (
+                        <div key={field} className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-200 dark:border-red-800">
+                            {/* Issue description */}
+                            <div className="flex items-start gap-2 mb-3">
+                                <XCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                                <div>
+                                    <p className="text-sm font-bold text-red-700 dark:text-red-400">{CORRECTION_FIELD_LABELS[field] || field}</p>
+                                    <p className="text-xs text-red-600 dark:text-red-400">Issue: {issue}</p>
+                                </div>
+                            </div>
+                            
+                            {/* Current value display */}
+                            <div className="mb-2 text-xs text-stone-500 dark:text-stone-400">
+                                Previous value: <span className="font-mono bg-stone-100 dark:bg-stone-700 px-1 rounded">{retryApp?.[field] || 'Not provided'}</span>
+                            </div>
+                            
+                            {/* Input field based on field type */}
+                            {field === 'avatar' ? (
+                                <div className="space-y-2">
+                                    <input
+                                        type="url"
+                                        value={formData.avatar}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, avatar: e.target.value }))}
+                                        placeholder="Enter new profile photo URL"
+                                        className="w-full px-3 py-2 border-2 border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-900 text-sm focus:border-amber-500 focus:outline-none"
+                                    />
+                                    {formData.avatar && (
+                                        <div className="flex items-center gap-2">
+                                            <img src={formData.avatar} alt="Preview" className="w-12 h-12 rounded-full object-cover border-2 border-amber-500" 
+                                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} 
+                                            />
+                                            <span className="text-xs text-green-600">Preview</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : field === 'section' ? (
+                                <select
+                                    value={(formData as any)[field] || ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                                    className="w-full px-3 py-2 border-2 border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-900 text-sm focus:border-amber-500 focus:outline-none"
+                                >
+                                    <option value="">Select Section</option>
+                                    {['1SF', '2SF', '3SF', '4SF', '1SG', '2SG', '3SG', '4SG'].map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                    ))}
+                                </select>
+                            ) : field === 'yearLevel' ? (
+                                <select
+                                    value={(formData as any)[field] || ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                                    className="w-full px-3 py-2 border-2 border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-900 text-sm focus:border-amber-500 focus:outline-none"
+                                >
+                                    <option value="">Select Year Level</option>
+                                    {['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'].map(y => (
+                                        <option key={y} value={y}>{y}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input
+                                    type={field.includes('email') || field === 'universityEmail' ? 'email' : 
+                                          field.includes('contact') || field === 'contactNumber' || field === 'emergencyContact' ? 'tel' : 'text'}
+                                    value={(formData as any)[field] || ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                                    placeholder={`Enter new ${CORRECTION_FIELD_LABELS[field] || field}`}
+                                    className="w-full px-3 py-2 border-2 border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-900 text-sm focus:border-amber-500 focus:outline-none"
+                                    required
+                                />
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-stone-400 text-white font-bold py-3 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-2"
+            >
+                {isLoading ? (
+                    <><Loader2 className="animate-spin" size={20} /> Submitting Corrections...</>
+                ) : (
+                    <>Submit Corrections <Check size={20} /></>
+                )}
+            </button>
+            
+            <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="w-full text-stone-500 dark:text-stone-400 text-sm hover:text-amber-600 transition-colors flex items-center justify-center gap-1"
+            >
+                <ChevronLeft size={16} /> Cancel
+            </button>
+        </form>
+    );
+
     return (
         <div className="min-h-screen bg-stone-100 dark:bg-stone-900">
             {/* Header */}
@@ -1338,23 +2313,42 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
             
             {/* Main Content */}
             <div className="max-w-4xl mx-auto px-4 py-6 pb-20">
-                {/* Step Indicator */}
-                <div className="bg-white dark:bg-stone-800 rounded-xl border-2 border-stone-200 dark:border-stone-700 p-4 mb-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-bold text-stone-800 dark:text-white">Registration</h2>
-                        <span className="text-xs font-bold text-stone-500 dark:text-stone-400 bg-stone-100 dark:bg-stone-700 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-600">
-                            Step {currentStep} of 3
-                        </span>
-                    </div>
-                    
-                    <div className="flex items-center justify-center gap-2 sm:gap-4">
-                        {[
-                            { step: 1, label: 'Verification' },
-                            { step: 2, label: 'OTP' },
-                            { step: 3, label: 'Details' }
-                        ].map(({ step, label }) => (
-                            <div key={step} className="flex items-center">
-                                <div className="flex flex-col items-center">
+                {/* Step Indicator - Only show for normal registration, not correction mode */}
+                {!isCorrectionMode ? (
+                    <div className="bg-white dark:bg-stone-800 rounded-xl border-2 border-stone-200 dark:border-stone-700 p-4 mb-6 shadow-sm">
+                        {/* Retry Mode Banner */}
+                        {isRetryMode && (
+                            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+                                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                                    <RotateCcw size={16} />
+                                    <span className="font-bold text-sm">Resubmitting Application</span>
+                                    <span className="ml-auto text-xs bg-amber-200 dark:bg-amber-800 px-2 py-0.5 rounded">
+                                        Attempt {attemptNumber}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                    Your previous application was rejected. Please review and update your information.
+                                </p>
+                            </div>
+                        )}
+                        
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-bold text-stone-800 dark:text-white">
+                                {isRetryMode ? 'Resubmit Application' : 'Registration'}
+                            </h2>
+                            <span className="text-xs font-bold text-stone-500 dark:text-stone-400 bg-stone-100 dark:bg-stone-700 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-600">
+                                Step {currentStep} of 3
+                            </span>
+                        </div>
+                        
+                        <div className="flex items-center justify-center gap-2 sm:gap-4">
+                            {[
+                                { step: 1, label: 'Verification' },
+                                { step: 2, label: 'OTP' },
+                                { step: 3, label: 'Details' }
+                            ].map(({ step, label }) => (
+                                <div key={step} className="flex items-center">
+                                    <div className="flex flex-col items-center">
                                     <div
                                         className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
                                             currentStep === step
@@ -1377,12 +2371,14 @@ export const Registration: React.FC<RegistrationProps> = ({ onComplete, onCancel
                         ))}
                     </div>
                 </div>
+                ) : null}
                 
                 {/* Step Content */}
                 <div className="animate-in">
                     {currentStep === 1 && renderStep1()}
                     {currentStep === 2 && renderStep2()}
                     {currentStep === 3 && renderStep3()}
+                    {currentStep === 4 && isCorrectionMode && renderCorrectionMode()}
                 </div>
             </div>
             

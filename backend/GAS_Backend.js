@@ -15,20 +15,65 @@
 
 // ==================== CONFIGURATION ====================
 
+const SCRIPT_PROPS = PropertiesService.getScriptProperties();
 const CONFIG = {
-  SPREADSHEET_ID: '1WCga8IAyFhuwPDYvoUIWHH1p6O4GQQkt6Wv6BjW-IgU',
+  SPREADSHEET_ID: SCRIPT_PROPS.getProperty('CLASSSYNC_SHEET_ID') || '1WCga8IAyFhuwPDYvoUIWHH1p6O4GQQkt6Wv6BjW-IgU',
   DRIVE_FOLDERS: {
-    CLASSSYNC: '1Rg7-dFZB7On1UTE9yr1jMYyiqlE53MpT',
-    PROFILE_PICTURES: '12FPfu_L8-tSnmfe22ou6kwkUEhh0NwuB'
+    CLASSSYNC: SCRIPT_PROPS.getProperty('CLASSSYNC_FOLDER_ID') || '1Rg7-dFZB7On1UTE9yr1jMYyiqlE53MpT',
+    PROFILE_PICTURES: SCRIPT_PROPS.getProperty('CLASSSYNC_PROFILE_FOLDER_ID') || '12FPfu_L8-tSnmfe22ou6kwkUEhh0NwuB',
+    SCHOOL_LOGOS: SCRIPT_PROPS.getProperty('CLASSSYNC_SCHOOL_LOGO_FOLDER_ID') || '1ZdELRwtat2hLk7gBIgNDZDfQrqHpygF0',
+    CLASS_LOGOS: SCRIPT_PROPS.getProperty('CLASSSYNC_CLASS_LOGO_FOLDER_ID') || '1GXqc-00NNj1kyEqgPhiMZ6CHljsrrHrT'
   },
-  EMAIL_SENDER_NAME: 'ClassSync Portal',
-  OTP_EXPIRY_MINUTES: 10,
-  SECTION_CODE: '1SF' // Default section code
+  EMAIL_SENDER_NAME: SCRIPT_PROPS.getProperty('CLASSSYNC_EMAIL_SENDER') || 'ClassSync Portal',
+  OTP_EXPIRY_MINUTES: Number(SCRIPT_PROPS.getProperty('CLASSSYNC_OTP_EXPIRY_MINUTES') || 10),
+  SECTION_CODE: SCRIPT_PROPS.getProperty('CLASSSYNC_SECTION_CODE') || '1SF', // Default section code
+  API_KEY: SCRIPT_PROPS.getProperty('CLASSSYNC_API_KEY') || ''
 };
+
+// Lightweight request guards
+function verifyApiKey(apiKey) {
+  if (!CONFIG.API_KEY) return { ok: true };
+  if (apiKey === CONFIG.API_KEY) return { ok: true };
+  return { ok: false, success: false, error: 'Unauthorized', errorCode: 'ERR_AUTH_001' };
+}
+
+function enforceRateLimit(key) {
+  if (!CONFIG.API_KEY) return; // Skip when no auth configured
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'rl_' + (key || 'anon');
+  const current = Number(cache.get(cacheKey) || 0);
+  if (current >= 120) {
+    throw new Error('ERR_RATE_LIMIT');
+  }
+  cache.put(cacheKey, String(current + 1), 60);
+}
+
+function maskPayloadForLog(payload) {
+  if (!payload) return payload;
+  try {
+    const clone = JSON.parse(JSON.stringify(payload));
+    ['password', 'otp', 'code'].forEach(k => {
+      if (clone[k]) clone[k] = '[REDACTED]';
+    });
+    return clone;
+  } catch (_) {
+    return payload;
+  }
+}
 
 // ==================== WEB APP HANDLERS ====================
 
 function doGet(e) {
+  const apiKey = (e.parameter && (e.parameter.apiKey || e.parameter.apikey || e.parameter.key)) || '';
+  const auth = verifyApiKey(apiKey);
+  if (!auth.ok) return createJsonResponse(auth);
+
+  try {
+    enforceRateLimit(apiKey);
+  } catch (err) {
+    return createJsonResponse({ success: false, error: 'Rate limit exceeded', errorCode: 'ERR_RATE_LIMIT' });
+  }
+
   const action = e.parameter.action;
   const result = handleRequest(action, e.parameter);
   return createJsonResponse(result);
@@ -39,6 +84,16 @@ function doPost(e) {
     const body = e.postData ? JSON.parse(e.postData.contents) : {};
     const action = body.action || e.parameter.action;
     const payload = body.payload || body;
+    const apiKey = (payload.apiKey || e.parameter.apiKey || e.parameter.apikey || payload.key) || '';
+
+    const auth = verifyApiKey(apiKey);
+    if (!auth.ok) return createJsonResponse(auth);
+
+    try {
+      enforceRateLimit(apiKey);
+    } catch (err) {
+      return createJsonResponse({ success: false, error: 'Rate limit exceeded', errorCode: 'ERR_RATE_LIMIT' });
+    }
     
     const result = handleRequest(action, payload);
     return createJsonResponse(result);
@@ -63,7 +118,7 @@ function handleRequest(action, payload) {
   // Log every request for debugging
   Logger.log('=== REQUEST RECEIVED ===');
   Logger.log('Action: ' + action);
-  Logger.log('Payload: ' + JSON.stringify(payload));
+  Logger.log('Payload: ' + JSON.stringify(maskPayloadForLog(payload)));
   
   const lock = LockService.getScriptLock();
   
@@ -98,6 +153,8 @@ function handleRequest(action, payload) {
       // File Upload
       case 'uploadProfilePicture': result = uploadProfilePicture(payload); break;
       case 'uploadToFolder': result = uploadToFolder(payload); break;
+      case 'uploadSchoolLogo': result = uploadSchoolLogo(payload); break;
+      case 'uploadClassLogo': result = uploadClassLogo(payload); break;
       
       // Data Operations
       case 'getTodos': result = getData('Todos'); break;
@@ -823,14 +880,17 @@ function uploadProfilePicture(payload) {
     const file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
-    const url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+    const fileId = file.getId();
+    // Use thumbnail URL which is more reliable for embedding and has no CORS issues
+    const url = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w800';
     
     return {
       success: true,
       url: url,
-      fileId: file.getId(),
+      fileId: fileId,
       fileName: file.getName(),
-      thumbnailUrl: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=s200'
+      thumbnailUrl: 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=s200',
+      directUrl: 'https://drive.google.com/uc?export=view&id=' + fileId
     };
   } catch (error) {
     return {
@@ -866,6 +926,68 @@ function uploadToFolder(payload) {
       success: false,
       error: error.toString(),
       errorCode: 'ERR_UPLOAD_002'
+    };
+  }
+}
+
+/**
+ * Upload a School Logo to the dedicated School Logos folder
+ */
+function uploadSchoolLogo(payload) {
+  const { data, mimeType, filename } = payload;
+  
+  try {
+    const decodedData = Utilities.base64Decode(data);
+    const blob = Utilities.newBlob(decodedData, mimeType, filename || 'school_logo_' + Date.now());
+    
+    const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDERS.SCHOOL_LOGOS);
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    const url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+    
+    return {
+      success: true,
+      url: url,
+      fileId: file.getId(),
+      fileName: file.getName()
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.toString(),
+      errorCode: 'ERR_UPLOAD_SCHOOL_LOGO'
+    };
+  }
+}
+
+/**
+ * Upload a Class Logo to the dedicated Class Logos folder
+ */
+function uploadClassLogo(payload) {
+  const { data, mimeType, filename } = payload;
+  
+  try {
+    const decodedData = Utilities.base64Decode(data);
+    const blob = Utilities.newBlob(decodedData, mimeType, filename || 'class_logo_' + Date.now());
+    
+    const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDERS.CLASS_LOGOS);
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    const url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+    
+    return {
+      success: true,
+      url: url,
+      fileId: file.getId(),
+      fileName: file.getName()
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.toString(),
+      errorCode: 'ERR_UPLOAD_CLASS_LOGO'
     };
   }
 }

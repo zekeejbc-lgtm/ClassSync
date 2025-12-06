@@ -1,16 +1,155 @@
 
-import React, { useState, useEffect } from 'react';
-import { User, UserRole, Transaction, AccessLog, AttendanceRecord, ClassSettings, ExcuseRequest, AttendanceComplaint, Feedback, AlbumImage, Achievement, Campaign, RegistrationApplication, ApplicationStatus } from '../types';
-import { getUsers, updateUser, getTransactions, addTransaction, getLogs, logAccess, getAttendance, saveAttendance, getSettings, updateSettings, getExcuseRequests, addExcuseRequest, updateExcuseStatus, getComplaints, fileComplaint, resolveComplaint, getAttendanceByStudent, updateAttendanceRecord, getFeedbacks, getAlbum, saveAlbum, getAchievements, saveAchievements, getCampaigns, saveCampaign, deleteTransaction, getApplications, updateApplicationStatus, deleteApplication } from '../services/dataService';
+import React, { useState, useEffect, useMemo } from 'react';
+import { User, UserRole, UserPosition, Transaction, AccessLog, AttendanceRecord, ClassSettings, ExcuseRequest, AttendanceComplaint, Feedback, AlbumImage, Achievement, Campaign, RegistrationApplication, ApplicationStatus, ApplicationFieldVerifications, School as SchoolType, Department, DepartmentType } from '../types';
+import { getUsers, updateUser, getTransactions, addTransaction, getLogs, logAccess, getAttendance, saveAttendance, getSettings, updateSettings, getExcuseRequests, addExcuseRequest, updateExcuseStatus, getComplaints, fileComplaint, resolveComplaint, getAttendanceByStudent, updateAttendanceRecord, getFeedbacks, getAlbum, saveAlbum, getAchievements, saveAchievements, getCampaigns, saveCampaign, deleteTransaction, getApplications, updateApplicationStatus, deleteApplication, verifyApplicationField, requestApplicationCorrections, getSchools, getDepartments, getColleges, getPrograms, getYearLevels, getSections } from '../services/dataService';
 import { PERMISSIONS } from '../constants';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { Shield, UserX, UserCheck, DollarSign, QrCode, Settings, Save, Search, Camera, FileText, CheckCircle, XCircle, AlertTriangle, Filter, Edit3, Plus, Trash2, ArrowRight, RefreshCcw, LayoutGrid, List, Clock, Eye, UserPlus, ChevronDown, ChevronUp, Phone, Mail, MapPin, School, Heart, Globe } from 'lucide-react';
+import { Shield, UserX, UserCheck, DollarSign, QrCode, Settings, Save, Search, Camera, FileText, CheckCircle, XCircle, AlertTriangle, Filter, Edit3, Plus, Trash2, ArrowRight, RefreshCcw, LayoutGrid, List, Clock, Eye, UserPlus, ChevronDown, ChevronUp, Phone, Mail, MapPin, School, Heart, Globe, Check, X, MessageSquare, Key, User as UserIcon, Building, Home, AlertCircle, GraduationCap, ChevronRight } from 'lucide-react';
 import { useToast } from './ui/Toast';
-import { Modal } from './ui/Modal';
+import { Modal, ModalPortal } from './ui/Modal';
 import { FileUploader } from './ui/FileUploader';
 import { CustomSelect } from './ui/CustomSelect';
+import { SchoolManagement } from './SchoolManagement';
+
+// Helper to transform Google Drive URLs for better image embedding
+const getImageUrl = (url: string | undefined): string => {
+    if (!url) return '';
+    
+    // Extract file ID from various Google Drive URL formats
+    let fileId = '';
+    
+    if (url.includes('drive.google.com/uc?export=view&id=')) {
+        fileId = url.split('id=')[1]?.split('&')[0] || '';
+    } else if (url.includes('drive.google.com/thumbnail?id=')) {
+        fileId = url.split('id=')[1]?.split('&')[0] || '';
+    } else if (url.includes('drive.google.com/file/d/')) {
+        const match = url.match(/\/file\/d\/([^\/]+)/);
+        if (match) fileId = match[1];
+    }
+    
+    if (fileId) {
+        // Use lh3.googleusercontent.com which is the most reliable for embedding
+        return `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+    }
+    
+    return url;
+};
 
 // ==================== APPLICATION MANAGEMENT (Admin Only) ====================
+
+// Field labels for display
+const FIELD_LABELS: Record<string, string> = {
+    studentId: 'Student ID',
+    universityEmail: 'University Email',
+    fullName: 'Full Name',
+    avatar: 'Profile Photo',
+    contactNumber: 'Contact Number',
+    province: 'Province',
+    city: 'City/Municipality',
+    barangay: 'Barangay',
+    school: 'School/University',
+    college: 'College',
+    program: 'Program',
+    major: 'Major',
+    section: 'Section',
+    emergencyPerson: 'Emergency Contact Person',
+    emergencyContact: 'Emergency Contact Number'
+};
+
+// Verifiable field component
+const VerifiableField: React.FC<{
+    label: string;
+    value: string | undefined;
+    fieldName: keyof ApplicationFieldVerifications;
+    app: RegistrationApplication;
+    userId: string;
+    onVerify: () => void;
+}> = ({ label, value, fieldName, app, userId, onVerify }) => {
+    const [issueText, setIssueText] = useState('');
+    const [showIssueInput, setShowIssueInput] = useState(false);
+    
+    const verification = app.fieldVerifications?.[fieldName];
+    const isVerified = verification?.verified === true;
+    const hasIssue = verification?.verified === false && verification?.issue;
+    
+    const handleVerify = () => {
+        verifyApplicationField(app.id, fieldName, true, userId);
+        onVerify();
+    };
+    
+    const handleMarkIssue = () => {
+        if (!issueText.trim()) return;
+        verifyApplicationField(app.id, fieldName, false, userId, issueText);
+        setShowIssueInput(false);
+        setIssueText('');
+        onVerify();
+    };
+    
+    return (
+        <div className={`flex items-start justify-between gap-2 p-2 rounded-lg transition-colors ${
+            isVerified ? 'bg-green-50 dark:bg-green-900/20' : 
+            hasIssue ? 'bg-red-50 dark:bg-red-900/20' : 
+            'bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700'
+        }`}>
+            <div className="flex-1 min-w-0">
+                <p className="text-xs text-stone-500">{label}</p>
+                <p className="text-sm font-medium text-stone-900 dark:text-white break-all">{value || 'Not provided'}</p>
+                {hasIssue && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">Issue: {verification?.issue}</p>
+                )}
+            </div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+                {isVerified ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 text-xs font-medium rounded-full">
+                        <Check size={12} /> Verified
+                    </span>
+                ) : hasIssue ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-medium rounded-full">
+                        <X size={12} /> Issue
+                    </span>
+                ) : (
+                    <>
+                        {showIssueInput ? (
+                            <div className="flex items-center gap-1">
+                                <input
+                                    type="text"
+                                    value={issueText}
+                                    onChange={(e) => setIssueText(e.target.value)}
+                                    placeholder="Describe issue..."
+                                    className="w-32 px-2 py-1 text-xs border border-stone-300 dark:border-stone-600 rounded bg-white dark:bg-stone-900"
+                                    onKeyDown={(e) => e.key === 'Enter' && handleMarkIssue()}
+                                />
+                                <button onClick={handleMarkIssue} className="p-1 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded">
+                                    <Check size={14} />
+                                </button>
+                                <button onClick={() => setShowIssueInput(false)} className="p-1 text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700 rounded">
+                                    <X size={14} />
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <button
+                                    onClick={handleVerify}
+                                    className="p-1.5 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-full transition-colors"
+                                    title="Mark as verified"
+                                >
+                                    <Check size={16} />
+                                </button>
+                                <button
+                                    onClick={() => setShowIssueInput(true)}
+                                    className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
+                                    title="Mark issue"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
 
 export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
     const { showToast } = useToast();
@@ -18,21 +157,139 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
     const [filterStatus, setFilterStatus] = useState<ApplicationStatus | 'all'>('all');
     const [selectedApp, setSelectedApp] = useState<RegistrationApplication | null>(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [showProfileModal, setShowProfileModal] = useState(false);
     const [reviewNotes, setReviewNotes] = useState('');
     const [rejectionReason, setRejectionReason] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [viewMode, setViewMode] = useState<'list' | 'hierarchy'>('list');
+    
+    // School structure filter state
+    const [filterSchoolId, setFilterSchoolId] = useState<string>('');
+    const [filterDepartmentId, setFilterDepartmentId] = useState<string>('');
+    const [filterCollegeId, setFilterCollegeId] = useState<string>('');
+    const [filterProgramId, setFilterProgramId] = useState<string>('');
+    const [filterYearLevelId, setFilterYearLevelId] = useState<string>('');
+    const [filterSectionId, setFilterSectionId] = useState<string>('');
+    
+    // School structure data
+    const [schoolStructure, setSchoolStructure] = useState<{
+        schools: SchoolType[];
+        departments: Department[];
+    }>({ schools: [], departments: [] });
 
     useEffect(() => {
         loadApplications();
+        // Load school structure
+        setSchoolStructure({
+            schools: getSchools(),
+            departments: getDepartments()
+        });
+        const handler = () => loadApplications();
+        window.addEventListener('applicationsUpdated', handler);
+        return () => window.removeEventListener('applicationsUpdated', handler);
     }, []);
 
     const loadApplications = () => {
         setApplications(getApplications());
+        // Refresh selected app if open
+        if (selectedApp) {
+            const updated = getApplications().find(a => a.id === selectedApp.id);
+            if (updated) setSelectedApp(updated);
+        }
     };
-
-    const filteredApplications = filterStatus === 'all' 
-        ? applications 
-        : applications.filter(app => app.status === filterStatus);
+    
+    // Filter applications by school structure
+    const filteredApplications = useMemo(() => {
+        let result = applications;
+        
+        // Status filter
+        if (filterStatus !== 'all') {
+            result = result.filter(app => app.status === filterStatus);
+        }
+        
+        // School structure filters
+        if (filterSchoolId) {
+            result = result.filter(app => app.schoolId === filterSchoolId || app.school === schoolStructure.schools.find(s => s.id === filterSchoolId)?.name);
+        }
+        if (filterDepartmentId) {
+            result = result.filter(app => app.departmentId === filterDepartmentId);
+        }
+        if (filterCollegeId) {
+            result = result.filter(app => app.collegeId === filterCollegeId);
+        }
+        if (filterProgramId) {
+            result = result.filter(app => app.programId === filterProgramId);
+        }
+        if (filterYearLevelId) {
+            result = result.filter(app => app.yearLevelId === filterYearLevelId);
+        }
+        if (filterSectionId) {
+            result = result.filter(app => app.sectionId === filterSectionId);
+        }
+        
+        return result;
+    }, [applications, filterStatus, filterSchoolId, filterDepartmentId, filterCollegeId, filterProgramId, filterYearLevelId, filterSectionId, schoolStructure.schools]);
+    
+    // Get unique values for hierarchy navigation
+    const uniqueSchools = useMemo(() => {
+        const schools = new Map<string, { id: string; name: string; count: number }>();
+        applications.forEach(app => {
+            const schoolId = app.schoolId || app.school;
+            if (schoolId) {
+                const existing = schools.get(schoolId);
+                if (existing) {
+                    existing.count++;
+                } else {
+                    const schoolData = schoolStructure.schools.find(s => s.id === schoolId);
+                    schools.set(schoolId, { 
+                        id: schoolId, 
+                        name: schoolData?.name || app.school || 'Unknown', 
+                        count: 1 
+                    });
+                }
+            }
+        });
+        return Array.from(schools.values());
+    }, [applications, schoolStructure.schools]);
+    
+    // Reset filters when going up the hierarchy
+    const resetFiltersFrom = (level: 'school' | 'department' | 'college' | 'program' | 'yearLevel' | 'section') => {
+        switch (level) {
+            case 'school':
+                setFilterSchoolId('');
+                setFilterDepartmentId('');
+                setFilterCollegeId('');
+                setFilterProgramId('');
+                setFilterYearLevelId('');
+                setFilterSectionId('');
+                break;
+            case 'department':
+                setFilterDepartmentId('');
+                setFilterCollegeId('');
+                setFilterProgramId('');
+                setFilterYearLevelId('');
+                setFilterSectionId('');
+                break;
+            case 'college':
+                setFilterCollegeId('');
+                setFilterProgramId('');
+                setFilterYearLevelId('');
+                setFilterSectionId('');
+                break;
+            case 'program':
+                setFilterProgramId('');
+                setFilterYearLevelId('');
+                setFilterSectionId('');
+                break;
+            case 'yearLevel':
+                setFilterYearLevelId('');
+                setFilterSectionId('');
+                break;
+            case 'section':
+                setFilterSectionId('');
+                break;
+        }
+    };
 
     const getStatusBadge = (status: ApplicationStatus) => {
         const styles = {
@@ -59,6 +316,11 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
         setReviewNotes(app.reviewNotes || '');
         setRejectionReason(app.rejectionReason || '');
         setShowDetailModal(true);
+    };
+
+    const handleViewProfile = (app: RegistrationApplication) => {
+        setSelectedApp(app);
+        setShowProfileModal(true);
     };
 
     const handleUpdateStatus = async (newStatus: ApplicationStatus) => {
@@ -140,194 +402,375 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
                                 Review and approve student registration requests
                             </p>
                         </div>
-                        <button 
-                            onClick={loadApplications}
-                            className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors text-sm font-medium"
-                        >
-                            <RefreshCcw size={16} /> Refresh
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center bg-stone-100 dark:bg-stone-800 rounded-lg p-1">
+                                <button
+                                    onClick={() => setViewMode('list')}
+                                    className={`p-2 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-stone-700 shadow-sm text-amber-600' : 'text-stone-500 hover:text-stone-700'}`}
+                                    title="List View"
+                                >
+                                    <List size={18} />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('hierarchy')}
+                                    className={`p-2 rounded-md transition-colors ${viewMode === 'hierarchy' ? 'bg-white dark:bg-stone-700 shadow-sm text-amber-600' : 'text-stone-500 hover:text-stone-700'}`}
+                                    title="School Hierarchy View"
+                                >
+                                    <Building size={18} />
+                                </button>
+                            </div>
+                            <button 
+                                onClick={loadApplications}
+                                className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors text-sm font-medium"
+                            >
+                                <RefreshCcw size={16} /> Refresh
+                            </button>
+                        </div>
                     </div>
                 </div>
+                
+                {/* Hierarchy Breadcrumb Navigation (shown in hierarchy view) */}
+                {viewMode === 'hierarchy' && (
+                    <div className="px-6 py-3 bg-stone-50 dark:bg-stone-800/50 border-b border-stone-200 dark:border-stone-700">
+                        <div className="flex items-center gap-2 text-sm flex-wrap">
+                            <button 
+                                onClick={() => resetFiltersFrom('school')}
+                                className={`font-medium ${!filterSchoolId ? 'text-amber-600' : 'text-stone-500 hover:text-amber-600'}`}
+                            >
+                                All Schools
+                            </button>
+                            {filterSchoolId && (
+                                <>
+                                    <ChevronRight size={14} className="text-stone-400" />
+                                    <button 
+                                        onClick={() => resetFiltersFrom('department')}
+                                        className={`font-medium ${filterSchoolId && !filterDepartmentId ? 'text-amber-600' : 'text-stone-500 hover:text-amber-600'}`}
+                                    >
+                                        {schoolStructure.schools.find(s => s.id === filterSchoolId)?.name || 'School'}
+                                    </button>
+                                </>
+                            )}
+                            {filterDepartmentId && (
+                                <>
+                                    <ChevronRight size={14} className="text-stone-400" />
+                                    <button 
+                                        onClick={() => resetFiltersFrom('college')}
+                                        className={`font-medium ${filterDepartmentId && !filterCollegeId ? 'text-amber-600' : 'text-stone-500 hover:text-amber-600'}`}
+                                    >
+                                        {schoolStructure.departments.find(d => d.id === filterDepartmentId)?.name || 'Department'}
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
+                
+                {/* Hierarchy Cards View */}
+                {viewMode === 'hierarchy' && !filterSchoolId && (
+                    <div className="p-4">
+                        <h3 className="text-sm font-medium text-stone-500 dark:text-stone-400 mb-3">Select a School</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {uniqueSchools.length === 0 ? (
+                                <p className="col-span-full text-center py-8 text-stone-400">No schools with applications found</p>
+                            ) : (
+                                uniqueSchools.map(school => (
+                                    <button
+                                        key={school.id}
+                                        onClick={() => setFilterSchoolId(school.id)}
+                                        className="bg-gradient-to-br from-stone-50 to-stone-100 dark:from-stone-800 dark:to-stone-700 rounded-xl p-4 border border-stone-200 dark:border-stone-600 hover:border-amber-400 hover:shadow-lg transition-all text-left group"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                                <School size={24} className="text-amber-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold text-stone-800 dark:text-white truncate">{school.name}</h4>
+                                                <p className="text-xs text-stone-500">{school.count} application{school.count !== 1 ? 's' : ''}</p>
+                                            </div>
+                                            <ChevronRight size={20} className="text-stone-400 group-hover:text-amber-600 transition-colors" />
+                                        </div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
 
-                {/* Status Tabs */}
-                <div className="flex flex-wrap gap-2 p-4 bg-stone-50 dark:bg-stone-800/50 border-b border-stone-200 dark:border-stone-700">
-                    {(['all', 'pending', 'verifying', 'approved', 'rejected'] as const).map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                                filterStatus === status
-                                    ? 'bg-amber-600 text-white'
-                                    : 'bg-white dark:bg-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-600'
-                            }`}
-                        >
-                            {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-                            <span className={`px-2 py-0.5 rounded-full text-xs ${
-                                filterStatus === status 
-                                    ? 'bg-white/20' 
-                                    : 'bg-stone-100 dark:bg-stone-600'
-                            }`}>
-                                {statusCounts[status]}
-                            </span>
-                        </button>
-                    ))}
-                </div>
+                {/* Status Tabs - Show in list view or when school is selected in hierarchy */}
+                {(viewMode === 'list' || filterSchoolId) && (
+                    <div className="flex flex-wrap gap-2 p-4 bg-stone-50 dark:bg-stone-800/50 border-b border-stone-200 dark:border-stone-700">
+                        {(['all', 'pending', 'verifying', 'approved', 'rejected'] as const).map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                                    filterStatus === status
+                                        ? 'bg-amber-600 text-white'
+                                        : 'bg-white dark:bg-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-600'
+                                }`}
+                            >
+                                {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
+                                <span className={`px-2 py-0.5 rounded-full text-xs ${
+                                    filterStatus === status 
+                                        ? 'bg-white/20' 
+                                        : 'bg-stone-100 dark:bg-stone-600'
+                                }`}>
+                                    {statusCounts[status]}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
 
-                {/* Applications List */}
-                <div className="overflow-x-auto">
+                {/* Applications Display - Show when in list mode OR when school selected in hierarchy */}
+                {(viewMode === 'list' || filterSchoolId) && (
+                <div className="p-4">
                     {filteredApplications.length === 0 ? (
                         <div className="p-12 text-center">
                             <FileText size={48} className="mx-auto text-stone-300 dark:text-stone-600 mb-4" />
                             <p className="text-stone-500 dark:text-stone-400">No applications found</p>
                         </div>
                     ) : (
-                        <table className="w-full text-left text-sm text-stone-600 dark:text-stone-300">
-                            <thead className="bg-stone-50 dark:bg-stone-800 text-xs uppercase font-semibold text-stone-500">
-                                <tr>
-                                    <th className="p-4">Applicant</th>
-                                    <th className="p-4">Student ID</th>
-                                    <th className="p-4">Email</th>
-                                    <th className="p-4">Section</th>
-                                    <th className="p-4">Submitted</th>
-                                    <th className="p-4">Status</th>
-                                    <th className="p-4 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
-                                {filteredApplications.map(app => (
-                                    <tr key={app.id} className="hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors">
-                                        <td className="p-4 font-medium text-stone-900 dark:text-white">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-stone-200 dark:bg-stone-700 overflow-hidden flex items-center justify-center">
-                                                    {app.avatar ? (
-                                                        <img src={app.avatar} alt="" className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <span className="text-sm font-bold text-stone-500">{app.fullName.substring(0,2).toUpperCase()}</span>
+                        /* Card View */
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {filteredApplications.map(app => (
+                                <div key={app.id} className="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700 overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 group">
+                                    {/* Card Header with Status */}
+                                    <div className={`h-2 ${
+                                        app.status === 'approved' ? 'bg-gradient-to-r from-green-500 to-emerald-500' :
+                                        app.status === 'rejected' ? 'bg-gradient-to-r from-red-500 to-rose-500' :
+                                        app.status === 'verifying' ? 'bg-gradient-to-r from-blue-500 to-cyan-500' :
+                                        'bg-gradient-to-r from-amber-500 to-orange-500'
+                                    }`}></div>
+                                    
+                                    {/* Profile Section - Clickable */}
+                                    <div 
+                                        onClick={() => handleViewProfile(app)}
+                                        className="p-5 cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-700/50 transition-colors"
+                                    >
+                                        <div className="flex items-start gap-4">
+                                            {/* Avatar */}
+                                            <div className="relative">
+                                                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 p-0.5 group-hover:scale-105 transition-transform">
+                                                    <div className="w-full h-full rounded-full bg-white dark:bg-stone-800 overflow-hidden relative">
+                                                        <div className="absolute inset-0 flex items-center justify-center text-xl font-bold text-amber-600">
+                                                            {app.fullName.substring(0,2).toUpperCase()}
+                                                        </div>
+                                                        <img 
+                                                            src={getImageUrl(app.avatar)} 
+                                                            alt={app.fullName} 
+                                                            className="absolute inset-0 w-full h-full object-cover z-10" 
+                                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-stone-800 flex items-center justify-center ${
+                                                    app.status === 'approved' ? 'bg-green-500' :
+                                                    app.status === 'rejected' ? 'bg-red-500' :
+                                                    app.status === 'verifying' ? 'bg-blue-500' : 'bg-amber-500'
+                                                }`}>
+                                                    {app.status === 'approved' ? <CheckCircle size={10} className="text-white" /> :
+                                                     app.status === 'rejected' ? <XCircle size={10} className="text-white" /> :
+                                                     app.status === 'verifying' ? <Eye size={10} className="text-white" /> :
+                                                     <Clock size={10} className="text-white" />}
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Info */}
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="font-bold text-stone-900 dark:text-white truncate group-hover:text-amber-600 transition-colors">
+                                                    {app.fullName}
+                                                </h3>
+                                                <p className="text-sm text-stone-500 dark:text-stone-400 truncate">@{app.username}</p>
+                                                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                                    <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded text-xs font-bold">
+                                                        {app.section}
+                                                    </span>
+                                                    <span className="text-xs text-stone-400 font-mono">{app.studentId}</span>
+                                                    {app.attemptNumber && app.attemptNumber > 1 && (
+                                                        <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs font-medium">
+                                                            Attempt #{app.attemptNumber}
+                                                        </span>
                                                     )}
                                                 </div>
-                                                <div>
-                                                    <p className="font-semibold">{app.fullName}</p>
-                                                    <p className="text-xs text-stone-500">@{app.username}</p>
-                                                </div>
                                             </div>
-                                        </td>
-                                        <td className="p-4 font-mono text-xs">{app.studentId}</td>
-                                        <td className="p-4 text-xs">{app.universityEmail}</td>
-                                        <td className="p-4 font-bold text-amber-600">{app.section}</td>
-                                        <td className="p-4 text-xs text-stone-500">
-                                            {new Date(app.submittedAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="p-4">{getStatusBadge(app.status)}</td>
-                                        <td className="p-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
+                                        </div>
+                                        
+                                        {/* Quick Info */}
+                                        <div className="mt-4 pt-4 border-t border-stone-100 dark:border-stone-700 space-y-2">
+                                            <div className="flex items-center gap-2 text-xs text-stone-600 dark:text-stone-400">
+                                                <Mail size={12} />
+                                                <span className="truncate">{app.universityEmail}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs text-stone-600 dark:text-stone-400">
+                                                <School size={12} />
+                                                <span className="truncate">{app.program}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs text-stone-500">
+                                                <Clock size={12} />
+                                                <span>Submitted {new Date(app.submittedAt).toLocaleDateString()}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Actions */}
+                                    <div className="px-5 py-3 bg-stone-50 dark:bg-stone-900 border-t border-stone-100 dark:border-stone-700 flex items-center justify-between">
+                                        <div>{getStatusBadge(app.status)}</div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => handleViewDetails(app)}
+                                                className="p-2 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                                                title="Review Application"
+                                            >
+                                                <Edit3 size={16} />
+                                            </button>
+                                            {app.status !== 'approved' && (
                                                 <button
-                                                    onClick={() => handleViewDetails(app)}
-                                                    className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                                                    title="View Details"
+                                                    onClick={() => handleDelete(app.id)}
+                                                    className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                                    title="Delete"
                                                 >
-                                                    <Eye size={18} />
+                                                    <Trash2 size={16} />
                                                 </button>
-                                                {app.status !== 'approved' && (
-                                                    <button
-                                                        onClick={() => handleDelete(app.id)}
-                                                        className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
+                )}
             </div>
 
             {/* Detail Modal */}
             {showDetailModal && selectedApp && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-                        {/* Header */}
-                        <div className="p-6 border-b border-stone-200 dark:border-stone-700 flex items-center justify-between bg-gradient-to-r from-amber-600 to-orange-600">
-                            <div className="flex items-center gap-4">
-                                <div className="w-16 h-16 rounded-full bg-white overflow-hidden border-4 border-white/30">
-                                    {selectedApp.avatar ? (
-                                        <img src={selectedApp.avatar} alt="" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full bg-stone-200 flex items-center justify-center text-xl font-bold text-stone-500">
-                                            {selectedApp.fullName.substring(0,2).toUpperCase()}
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4" onClick={() => setShowDetailModal(false)}>
+                        <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                            {/* Header - Mobile Optimized */}
+                            <div className="flex-shrink-0 p-4 sm:p-6 bg-gradient-to-r from-amber-600 to-orange-600">
+                                <div className="flex items-start gap-3 sm:gap-4">
+                                    <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 p-0.5 sm:p-1 shadow-xl flex-shrink-0">
+                                        <div className="w-full h-full rounded-full bg-white overflow-hidden relative">
+                                            <div className="absolute inset-0 flex items-center justify-center text-lg sm:text-2xl font-bold text-amber-600">
+                                                {selectedApp.fullName.substring(0,2).toUpperCase()}
+                                            </div>
+                                            {selectedApp.avatar && (
+                                                <img 
+                                                    src={getImageUrl(selectedApp.avatar)} 
+                                                    alt={selectedApp.fullName} 
+                                                    className="absolute inset-0 w-full h-full object-cover z-10" 
+                                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                />
+                                            )}
                                         </div>
-                                    )}
+                                    </div>
+                                    <div className="flex-1 min-w-0 text-white">
+                                        <h3 className="text-lg sm:text-2xl font-bold leading-tight">{selectedApp.fullName}</h3>
+                                        <p className="text-white/80 text-xs sm:text-sm mt-0.5">@{selectedApp.username} • {selectedApp.studentId}</p>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        {getStatusBadge(selectedApp.status)}
+                                        {selectedApp.attemptNumber && selectedApp.attemptNumber > 1 && (
+                                            <span className="px-2 py-0.5 bg-amber-500/80 text-white text-xs font-medium rounded-full">
+                                                Attempt #{selectedApp.attemptNumber}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="text-white">
-                                    <h3 className="text-xl font-bold">{selectedApp.fullName}</h3>
-                                    <p className="text-white/80 text-sm">@{selectedApp.username} • {selectedApp.studentId}</p>
-                                </div>
+                                <button 
+                                    onClick={() => setShowDetailModal(false)}
+                                    className="p-1.5 sm:p-2 bg-black/20 hover:bg-black/40 rounded-full text-white transition-colors flex-shrink-0"
+                                >
+                                    <XCircle size={18} />
+                                </button>
                             </div>
-                            {getStatusBadge(selectedApp.status)}
                         </div>
 
                         {/* Content */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                            {/* Contact Info */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-4">
-                                    <h4 className="text-xs font-bold text-stone-500 uppercase mb-3 flex items-center gap-2">
-                                        <Mail size={14} /> Contact Information
-                                    </h4>
-                                    <div className="space-y-2 text-sm">
-                                        <p><span className="text-stone-500">University Email:</span> <span className="font-medium">{selectedApp.universityEmail}</span></p>
-                                        {selectedApp.personalEmail && <p><span className="text-stone-500">Personal Email:</span> <span className="font-medium">{selectedApp.personalEmail}</span></p>}
-                                        <p><span className="text-stone-500">Contact:</span> <span className="font-medium">{selectedApp.contactNumber}</span></p>
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+                            {/* Fields needing correction notice */}
+                            {selectedApp.fieldsNeedingCorrection && selectedApp.fieldsNeedingCorrection.length > 0 && (
+                                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+                                    <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-2">
+                                        <AlertTriangle size={16} />
+                                        <span className="font-bold text-sm">Waiting for Corrections</span>
                                     </div>
+                                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                                        {selectedApp.fieldsNeedingCorrection.length} field(s) marked for correction. Waiting for applicant to update.
+                                    </p>
                                 </div>
-                                
-                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-4">
-                                    <h4 className="text-xs font-bold text-stone-500 uppercase mb-3 flex items-center gap-2">
-                                        <MapPin size={14} /> Location
-                                    </h4>
-                                    <div className="space-y-2 text-sm">
-                                        <p><span className="text-stone-500">Province:</span> <span className="font-medium">{selectedApp.province}</span></p>
-                                        <p><span className="text-stone-500">City:</span> <span className="font-medium">{selectedApp.city}</span></p>
-                                        <p><span className="text-stone-500">Barangay:</span> <span className="font-medium">{selectedApp.barangay}</span></p>
-                                        {selectedApp.purokHouseNumber && <p><span className="text-stone-500">Purok/House:</span> <span className="font-medium">{selectedApp.purokHouseNumber}</span></p>}
+                            )}
+                            
+                            {/* Resubmission notice */}
+                            {selectedApp.resubmittedAt && (
+                                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+                                    <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-1">
+                                        <RefreshCcw size={16} />
+                                        <span className="font-bold text-sm">Corrections Submitted</span>
                                     </div>
+                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                        Applicant resubmitted corrections on {new Date(selectedApp.resubmittedAt).toLocaleString()}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Basic Info with Verification */}
+                            <div className="bg-white dark:bg-stone-800 rounded-xl p-3 sm:p-4 border border-stone-200 dark:border-stone-700">
+                                <h4 className="text-xs font-bold text-stone-500 uppercase mb-3 flex items-center gap-2">
+                                    <UserPlus size={14} /> Basic Information
+                                    <span className="ml-auto text-[10px] font-normal text-stone-400">Click ✓ to verify or ✗ to mark issues</span>
+                                </h4>
+                                <div className="space-y-2">
+                                    <VerifiableField label="Student ID" value={selectedApp.studentId} fieldName="studentId" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="Full Name" value={selectedApp.fullName} fieldName="fullName" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="University Email" value={selectedApp.universityEmail} fieldName="universityEmail" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="Contact Number" value={selectedApp.contactNumber} fieldName="contactNumber" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="Profile Photo" value={selectedApp.avatar ? 'Uploaded' : 'Not uploaded'} fieldName="avatar" app={selectedApp} userId={user.id} onVerify={loadApplications} />
                                 </div>
                             </div>
 
-                            {/* School Info */}
-                            <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-4">
+                            {/* Location with Verification */}
+                            <div className="bg-white dark:bg-stone-800 rounded-xl p-3 sm:p-4 border border-stone-200 dark:border-stone-700">
+                                <h4 className="text-xs font-bold text-stone-500 uppercase mb-3 flex items-center gap-2">
+                                    <MapPin size={14} /> Location
+                                </h4>
+                                <div className="space-y-2">
+                                    <VerifiableField label="Province" value={selectedApp.province} fieldName="province" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="City/Municipality" value={selectedApp.city} fieldName="city" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="Barangay" value={selectedApp.barangay} fieldName="barangay" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                </div>
+                            </div>
+
+                            {/* School Info with Verification */}
+                            <div className="bg-white dark:bg-stone-800 rounded-xl p-3 sm:p-4 border border-stone-200 dark:border-stone-700">
                                 <h4 className="text-xs font-bold text-stone-500 uppercase mb-3 flex items-center gap-2">
                                     <School size={14} /> School Information
                                 </h4>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                                    <p><span className="text-stone-500">School:</span> <span className="font-medium">{selectedApp.school}</span></p>
-                                    <p><span className="text-stone-500">College:</span> <span className="font-medium">{selectedApp.college}</span></p>
-                                    <p><span className="text-stone-500">Program:</span> <span className="font-medium">{selectedApp.program}</span></p>
-                                    {selectedApp.major && <p><span className="text-stone-500">Major:</span> <span className="font-medium">{selectedApp.major}</span></p>}
-                                    <p><span className="text-stone-500">Year Level:</span> <span className="font-medium">{selectedApp.yearLevel}</span></p>
-                                    <p><span className="text-stone-500">Section:</span> <span className="font-bold text-amber-600">{selectedApp.section}</span></p>
+                                <div className="space-y-2">
+                                    <VerifiableField label="School/University" value={selectedApp.school} fieldName="school" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="College" value={selectedApp.college} fieldName="college" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="Program" value={selectedApp.program} fieldName="program" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    {selectedApp.major && <VerifiableField label="Major" value={selectedApp.major} fieldName="major" app={selectedApp} userId={user.id} onVerify={loadApplications} />}
+                                    <VerifiableField label="Section" value={selectedApp.section} fieldName="section" app={selectedApp} userId={user.id} onVerify={loadApplications} />
                                 </div>
                             </div>
 
-                            {/* Emergency Contact */}
-                            <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
+                            {/* Emergency Contact with Verification */}
+                            <div className="bg-white dark:bg-stone-800 rounded-xl p-3 sm:p-4 border border-stone-200 dark:border-stone-700">
                                 <h4 className="text-xs font-bold text-red-600 dark:text-red-400 uppercase mb-3 flex items-center gap-2">
                                     <Heart size={14} /> Emergency Contact
                                 </h4>
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <p><span className="text-stone-500">Contact Person:</span> <span className="font-medium">{selectedApp.emergencyPerson}</span></p>
-                                    <p><span className="text-stone-500">Contact Number:</span> <span className="font-medium">{selectedApp.emergencyContact}</span></p>
+                                <div className="space-y-2">
+                                    <VerifiableField label="Contact Person" value={selectedApp.emergencyPerson} fieldName="emergencyPerson" app={selectedApp} userId={user.id} onVerify={loadApplications} />
+                                    <VerifiableField label="Contact Number" value={selectedApp.emergencyContact} fieldName="emergencyContact" app={selectedApp} userId={user.id} onVerify={loadApplications} />
                                 </div>
                             </div>
 
                             {/* Social Links */}
                             {selectedApp.socialLinks && selectedApp.socialLinks.length > 0 && (
-                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-4">
-                                    <h4 className="text-xs font-bold text-stone-500 uppercase mb-3 flex items-center gap-2">
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-3 sm:p-4">
+                                    <h4 className="text-xs font-bold text-stone-500 uppercase mb-2 sm:mb-3 flex items-center gap-2">
                                         <Globe size={14} /> Social Links
                                     </h4>
                                     <div className="flex flex-wrap gap-2">
@@ -348,28 +791,28 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
 
                             {/* Review Section */}
                             {selectedApp.status !== 'approved' && (
-                                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4">
-                                    <h4 className="text-xs font-bold text-amber-600 uppercase mb-3">Admin Review</h4>
-                                    <div className="space-y-4">
+                                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 sm:p-4">
+                                    <h4 className="text-xs font-bold text-amber-600 uppercase mb-2 sm:mb-3">Admin Review</h4>
+                                    <div className="space-y-3 sm:space-y-4">
                                         <div>
-                                            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Review Notes (Optional)</label>
+                                            <label className="block text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Review Notes (Optional)</label>
                                             <textarea
                                                 value={reviewNotes}
                                                 onChange={e => setReviewNotes(e.target.value)}
                                                 placeholder="Add any notes about this application..."
-                                                className="w-full p-3 border border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-800 text-sm"
+                                                className="w-full p-2 sm:p-3 border border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-800 text-xs sm:text-sm"
                                                 rows={2}
                                             />
                                         </div>
                                         
                                         {selectedApp.status !== 'rejected' && (
                                             <div>
-                                                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Rejection Reason (Required if rejecting)</label>
+                                                <label className="block text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Rejection Reason (Required if rejecting)</label>
                                                 <textarea
                                                     value={rejectionReason}
                                                     onChange={e => setRejectionReason(e.target.value)}
                                                     placeholder="Provide a reason if rejecting this application..."
-                                                    className="w-full p-3 border border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-800 text-sm"
+                                                    className="w-full p-2 sm:p-3 border border-stone-300 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-800 text-xs sm:text-sm"
                                                     rows={2}
                                                 />
                                             </div>
@@ -380,7 +823,7 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
 
                             {/* Previous Review Info */}
                             {selectedApp.reviewedAt && (
-                                <div className="bg-stone-100 dark:bg-stone-900 rounded-xl p-4 text-sm">
+                                <div className="bg-stone-100 dark:bg-stone-900 rounded-xl p-3 sm:p-4 text-xs sm:text-sm">
                                     <p className="text-stone-500">
                                         Reviewed on {new Date(selectedApp.reviewedAt).toLocaleString()} by {selectedApp.reviewedBy}
                                     </p>
@@ -390,23 +833,25 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
                             )}
                         </div>
 
-                        {/* Footer Actions */}
-                        <div className="p-6 border-t border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900">
-                            <div className="flex flex-wrap gap-3 justify-end">
+                        {/* Footer Actions - Mobile Optimized */}
+                        <div className="flex-shrink-0 px-3 sm:px-6 py-3 sm:py-4 border-t border-stone-100 dark:border-stone-700/50 bg-white dark:bg-stone-800">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <button
                                     onClick={() => setShowDetailModal(false)}
-                                    className="px-4 py-2 bg-stone-200 dark:bg-stone-700 rounded-lg font-medium hover:bg-stone-300 dark:hover:bg-stone-600 transition-colors"
+                                    className="px-3 sm:px-4 py-2 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg font-medium transition-all text-xs sm:text-sm"
                                 >
                                     Close
                                 </button>
+                                
+                                <div className="flex-1 min-w-0"></div>
                                 
                                 {selectedApp.status === 'pending' && (
                                     <button
                                         onClick={() => handleUpdateStatus('verifying')}
                                         disabled={isProcessing}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+                                        className="px-3 sm:px-4 py-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg font-medium transition-all text-xs sm:text-sm flex items-center gap-1.5"
                                     >
-                                        <Eye size={16} /> Mark as Verifying
+                                        <Eye size={14} className="sm:hidden" /><Eye size={16} className="hidden sm:block" /> <span className="hidden xs:inline">Verify</span>
                                     </button>
                                 )}
                                 
@@ -415,23 +860,203 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
                                         <button
                                             onClick={() => handleUpdateStatus('rejected')}
                                             disabled={isProcessing}
-                                            className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-2"
+                                            className="px-3 sm:px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-medium transition-all text-xs sm:text-sm flex items-center gap-1.5"
                                         >
-                                            <XCircle size={16} /> Reject
+                                            <XCircle size={14} className="sm:hidden" /><XCircle size={16} className="hidden sm:block" /> Reject
                                         </button>
                                         <button
                                             onClick={() => handleUpdateStatus('approved')}
                                             disabled={isProcessing}
-                                            className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+                                            className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-all text-xs sm:text-sm flex items-center gap-1.5"
                                         >
-                                            <CheckCircle size={16} /> Approve & Create Account
+                                            <CheckCircle size={14} className="sm:hidden" /><CheckCircle size={16} className="hidden sm:block" /> Approve
                                         </button>
                                     </>
                                 )}
                             </div>
                         </div>
+                        </div>
                     </div>
-                </div>
+                </ModalPortal>
+            )}
+
+            {/* Profile Modal (View Only) */}
+            {showProfileModal && selectedApp && (
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4" onClick={() => setShowProfileModal(false)}>
+                        <div className="bg-white dark:bg-stone-800 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-lg max-h-[95vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                        {/* Fixed Profile Header with Avatar and Name - Mobile Optimized */}
+                        <div className="flex-shrink-0 bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 p-4 sm:p-6">
+                            <div className="flex items-start gap-3 sm:gap-4">
+                                {/* Avatar */}
+                                <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 p-0.5 sm:p-1 shadow-xl flex-shrink-0">
+                                    <div className="w-full h-full rounded-full bg-white dark:bg-stone-800 overflow-hidden relative">
+                                        <div className="absolute inset-0 flex items-center justify-center text-xl sm:text-3xl font-bold text-amber-600">
+                                            {selectedApp.fullName.substring(0,2).toUpperCase()}
+                                        </div>
+                                        {selectedApp.avatar && (
+                                            <img 
+                                                src={getImageUrl(selectedApp.avatar)} 
+                                                alt={selectedApp.fullName} 
+                                                className="absolute inset-0 w-full h-full object-cover z-10" 
+                                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* Name and Info */}
+                                <div className="flex-1 min-w-0 text-white">
+                                    <h2 className="text-lg sm:text-2xl font-bold leading-tight">{selectedApp.fullName}</h2>
+                                    <p className="text-white/80 text-xs sm:text-sm">@{selectedApp.username}</p>
+                                    <div className="mt-1.5 sm:mt-2">
+                                        {getStatusBadge(selectedApp.status)}
+                                    </div>
+                                </div>
+                                
+                                {/* Close Button */}
+                                <button 
+                                    onClick={() => setShowProfileModal(false)}
+                                    className="p-1.5 sm:p-2 bg-black/20 hover:bg-black/40 rounded-full text-white transition-colors flex-shrink-0"
+                                >
+                                    <XCircle size={18} />
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {/* Scrollable Profile Info */}
+                        <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
+                            
+                            {/* Quick Stats */}
+                            <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4 sm:mb-6">
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-2 sm:p-3 text-center">
+                                    <p className="text-sm sm:text-lg font-bold text-amber-600">{selectedApp.section}</p>
+                                    <p className="text-[10px] sm:text-xs text-stone-500">Section</p>
+                                </div>
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-2 sm:p-3 text-center">
+                                    <p className="text-sm sm:text-lg font-bold text-stone-700 dark:text-stone-300">{selectedApp.yearLevel || 'N/A'}</p>
+                                    <p className="text-[10px] sm:text-xs text-stone-500">Year</p>
+                                </div>
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-2 sm:p-3 text-center">
+                                    <p className="text-[10px] sm:text-sm font-mono font-bold text-stone-700 dark:text-stone-300">{selectedApp.studentId}</p>
+                                    <p className="text-[10px] sm:text-xs text-stone-500">ID</p>
+                                </div>
+                            </div>
+                            
+                            {/* Details */}
+                            <div className="space-y-3 sm:space-y-4">
+                                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                    <Mail size={16} className="text-stone-400 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs text-stone-500">University Email</p>
+                                        <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300 truncate">{selectedApp.universityEmail}</p>
+                                    </div>
+                                </div>
+                                
+                                {selectedApp.personalEmail && (
+                                    <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                        <Mail size={16} className="text-stone-400 flex-shrink-0" />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[10px] sm:text-xs text-stone-500">Personal Email</p>
+                                            <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300 truncate">{selectedApp.personalEmail}</p>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                    <Phone size={16} className="text-stone-400 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs text-stone-500">Contact Number</p>
+                                        <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300">{selectedApp.contactNumber}</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                    <School size={16} className="text-stone-400 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs text-stone-500">Program</p>
+                                        <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300">{selectedApp.program}{selectedApp.major && ` - ${selectedApp.major}`}</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                    <MapPin size={16} className="text-stone-400 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs text-stone-500">Address</p>
+                                        <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300">
+                                            {[selectedApp.barangay, selectedApp.city, selectedApp.province].filter(Boolean).join(', ')}
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                {selectedApp.socialLinks && selectedApp.socialLinks.length > 0 && (
+                                    <div className="p-2.5 sm:p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                        <p className="text-[10px] sm:text-xs text-stone-500 mb-2 flex items-center gap-2"><Globe size={14} /> Social Links</p>
+                                        <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                                            {selectedApp.socialLinks.map(link => (
+                                                <a 
+                                                    key={link.id} 
+                                                    href={link.url} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="px-2 sm:px-3 py-1 bg-white dark:bg-stone-800 rounded-full text-[10px] sm:text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border border-stone-200 dark:border-stone-700"
+                                                >
+                                                    {link.platform}
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Footer with Action Buttons - Mobile Optimized */}
+                            <div className="mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-stone-100 dark:border-stone-700/50">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <p className="text-[10px] sm:text-xs text-stone-400">
+                                        Applied {new Date(selectedApp.submittedAt).toLocaleDateString()}
+                                    </p>
+                                    
+                                    <div className="flex items-center justify-end gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setShowProfileModal(false);
+                                                handleViewDetails(selectedApp);
+                                            }}
+                                            className="px-2.5 sm:px-3 py-1.5 text-stone-600 dark:text-stone-400 hover:text-amber-600 dark:hover:text-amber-400 text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5"
+                                        >
+                                            <Edit3 size={14} /> Details
+                                        </button>
+                                        
+                                        {selectedApp.status === 'pending' && (
+                                            <>
+                                                <button
+                                                    onClick={() => {
+                                                        setShowProfileModal(false);
+                                                        handleViewDetails(selectedApp);
+                                                    }}
+                                                    className="px-2.5 sm:px-3 py-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5"
+                                                >
+                                                    <XCircle size={14} /> Reject
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        setShowProfileModal(false);
+                                                        setSelectedApp(selectedApp);
+                                                        await handleUpdateStatus('approved');
+                                                    }}
+                                                    className="px-2.5 sm:px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5"
+                                                >
+                                                    <CheckCircle size={14} /> Approve
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                </ModalPortal>
             )}
         </div>
     );
@@ -442,23 +1067,79 @@ export const ApplicationManagement: React.FC<{ user: User }> = ({ user }) => {
 export const MemberManagement: React.FC<{ user: User }> = ({ user }) => {
     const { showToast } = useToast();
     const [members, setMembers] = useState<User[]>([]);
+    const [filteredMembers, setFilteredMembers] = useState<User[]>([]);
     const [selectedMember, setSelectedMember] = useState<User | null>(null);
     const [showMemberDetail, setShowMemberDetail] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sectionFilter, setSectionFilter] = useState<string>('all');
+    const [viewMode, setViewMode] = useState<'table' | 'card'>(() => {
+        // Default: table for desktop, card for mobile
+        if (typeof window !== 'undefined') {
+            return window.innerWidth < 768 ? 'card' : 'table';
+        }
+        return 'table';
+    });
+    
+    // Tab state for switching between Members and School Structure
+    const [activeTab, setActiveTab] = useState<'members' | 'school-structure'>('members');
+    
+    // Edit mode states
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState<Partial<User>>({});
+    const [isSaving, setIsSaving] = useState(false);
+    const [sendingReset, setSendingReset] = useState(false);
+    
+    // Get unique sections from all members
+    const [availableSections, setAvailableSections] = useState<string[]>([]);
 
     useEffect(() => {
         loadMembers();
+        // Listen for window resize to update default view mode
+        const handleResize = () => {
+            if (window.innerWidth < 768 && viewMode === 'table') {
+                setViewMode('card');
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    useEffect(() => {
+        // Apply filters
+        let result = members;
+        
+        if (sectionFilter !== 'all') {
+            result = result.filter(m => m.section === sectionFilter);
+        }
+        
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            result = result.filter(m => 
+                m.fullName?.toLowerCase().includes(query) ||
+                m.username.toLowerCase().includes(query) ||
+                m.email?.toLowerCase().includes(query) ||
+                m.id?.toLowerCase().includes(query) ||
+                m.studentId?.toLowerCase().includes(query)
+            );
+        }
+        
+        setFilteredMembers(result);
+    }, [members, sectionFilter, searchQuery]);
 
     const loadMembers = () => {
         let allMembers = getUsers();
         
         // Mayor can only see members within their section
-        if (user.role === UserRole.MAYOR) {
+        if (user.position === UserPosition.MAYOR) {
             const userSection = user.section || '1SF';
             allMembers = allMembers.filter(m => m.section === userSection || !m.section);
         }
         
         setMembers(allMembers);
+        
+        // Extract unique sections
+        const sections = [...new Set(allMembers.map(m => m.section).filter(Boolean))] as string[];
+        setAvailableSections(sections.sort());
     };
 
     const toggleStatus = (targetUser: User) => {
@@ -477,91 +1158,1077 @@ export const MemberManagement: React.FC<{ user: User }> = ({ user }) => {
         updateUser(updated);
         logAccess(user.id, 'USER_MGMT', `Changed role of ${targetUser.username} to ${newRole}`);
         loadMembers();
+        if (selectedMember?.id === targetUser.id) {
+            setSelectedMember(updated);
+        }
         showToast(`Role updated for ${targetUser.username}`, 'success');
+    };
+
+    const changePosition = (targetUser: User, newPosition: UserPosition) => {
+        if (!PERMISSIONS.CAN_MANAGE_USERS.includes(user.role)) return;
+        const updated: User = { ...targetUser, position: newPosition };
+        updateUser(updated);
+        logAccess(user.id, 'USER_MGMT', `Changed position of ${targetUser.username} to ${newPosition}`);
+        loadMembers();
+        if (selectedMember?.id === targetUser.id) {
+            setSelectedMember(updated);
+        }
+        showToast(`Position updated for ${targetUser.username}`, 'success');
     };
     
     const canEdit = PERMISSIONS.CAN_MANAGE_USERS.includes(user.role);
     const isAdmin = user.role === UserRole.ADMIN;
 
-    // View member details - Admin only for full info
+    // View member details
     const handleViewMember = (member: User) => {
         setSelectedMember(member);
+        setEditForm({ ...member });
+        setIsEditing(false);
         setShowMemberDetail(true);
     };
 
-    return (
-        <div className="space-y-6">
-            <div className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 overflow-hidden">
-                <div className="p-6 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between">
-                    <div>
-                        <h2 className="text-xl font-bold text-stone-800 dark:text-white">Member Management</h2>
-                        {user.role === UserRole.MAYOR && (
-                            <p className="text-sm text-stone-500 mt-1">Showing members in section: <span className="font-bold text-amber-600">{user.section || '1SF'}</span></p>
+    // Start editing
+    const handleStartEdit = () => {
+        if (selectedMember) {
+            setEditForm({ ...selectedMember });
+            setIsEditing(true);
+        }
+    };
+
+    // Cancel editing
+    const handleCancelEdit = () => {
+        if (selectedMember) {
+            setEditForm({ ...selectedMember });
+        }
+        setIsEditing(false);
+    };
+
+    // Save all changes
+    const handleSaveChanges = () => {
+        if (!selectedMember || !editForm) return;
+        
+        setIsSaving(true);
+        try {
+            const updated: User = { ...selectedMember, ...editForm } as User;
+            updateUser(updated);
+            logAccess(user.id, 'USER_MGMT', `Updated profile of ${updated.username}`);
+            setSelectedMember(updated);
+            loadMembers();
+            setIsEditing(false);
+            showToast(`Profile updated for ${updated.fullName || updated.username}`, 'success');
+        } catch (error) {
+            showToast('Failed to save changes', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Update form field
+    const updateFormField = (field: keyof User, value: any) => {
+        setEditForm(prev => ({ ...prev, [field]: value }));
+    };
+
+    // Send password reset email
+    const handleSendPasswordReset = async () => {
+        if (!selectedMember?.email) {
+            showToast('No email address available', 'error');
+            return;
+        }
+        
+        setSendingReset(true);
+        try {
+            // Create a reset token (in a real app, this would be stored securely)
+            const resetToken = `reset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const resetUrl = `${window.location.origin}/#/reset-password?token=${resetToken}&email=${encodeURIComponent(selectedMember.email)}`;
+            
+            // For now, we'll open the email client with the reset link
+            // In production, this would call an API to send an actual email
+            const subject = encodeURIComponent('ClassSync Password Reset Request');
+            const body = encodeURIComponent(
+                `Hello ${selectedMember.fullName || selectedMember.username},\n\n` +
+                `A password reset has been requested for your ClassSync account.\n\n` +
+                `Click the link below to reset your password:\n${resetUrl}\n\n` +
+                `If you did not request this, please ignore this email.\n\n` +
+                `- ClassSync Admin Team`
+            );
+            
+            window.open(`mailto:${selectedMember.email}?subject=${subject}&body=${body}`, '_blank');
+            
+            logAccess(user.id, 'USER_MGMT', `Initiated password reset for ${selectedMember.username}`);
+            showToast(`Password reset email prepared for ${selectedMember.email}`, 'success');
+        } catch (error) {
+            showToast('Failed to send password reset', 'error');
+        } finally {
+            setSendingReset(false);
+        }
+    };
+
+    // Add social link
+    const handleAddSocialLink = () => {
+        const currentLinks = editForm.socialLinks || [];
+        const newLink = {
+            id: `social_${Date.now()}`,
+            platform: 'Website',
+            url: ''
+        };
+        updateFormField('socialLinks', [...currentLinks, newLink]);
+    };
+
+    // Update social link
+    const handleUpdateSocialLink = (id: string, field: 'platform' | 'url', value: string) => {
+        const currentLinks = editForm.socialLinks || [];
+        const updated = currentLinks.map(link => 
+            link.id === id ? { ...link, [field]: value } : link
+        );
+        updateFormField('socialLinks', updated);
+    };
+
+    // Remove social link
+    const handleRemoveSocialLink = (id: string) => {
+        const currentLinks = editForm.socialLinks || [];
+        updateFormField('socialLinks', currentLinks.filter(link => link.id !== id));
+    };
+
+    // Format position for display
+    const formatPosition = (position?: UserPosition) => {
+        if (!position || position === UserPosition.NONE) return null;
+        return position.replace(/_/g, ' ');
+    };
+
+    // Get position badge color
+    const getPositionBadgeColor = (position?: UserPosition) => {
+        switch (position) {
+            case UserPosition.MAYOR: return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
+            case UserPosition.VICE_MAYOR: return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300';
+            case UserPosition.SECRETARY: return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+            case UserPosition.ASST_SECRETARY: return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300';
+            case UserPosition.TREASURER: return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+            case UserPosition.AUDITOR: return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300';
+            case UserPosition.INT_PIO: return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+            case UserPosition.EXT_PIO: return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
+            case UserPosition.MARSHALL: return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+            default: return 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300';
+        }
+    };
+
+    // Member Card Component for mobile/card view
+    const MemberCard: React.FC<{ member: User }> = ({ member }) => (
+        <div 
+            className="bg-white dark:bg-stone-800 rounded-xl shadow-sm border border-stone-200 dark:border-stone-700 p-4 hover:shadow-md transition-all cursor-pointer"
+            onClick={() => handleViewMember(member)}
+        >
+            <div className="flex items-start gap-4">
+                {/* Avatar */}
+                <div className="w-14 h-14 flex-shrink-0 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 p-0.5">
+                    <div className="w-full h-full rounded-full bg-white dark:bg-stone-800 overflow-hidden relative">
+                        <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-amber-600">
+                            {member.username.substring(0,2).toUpperCase()}
+                        </div>
+                        <img 
+                            src={getImageUrl(member.avatar)} 
+                            alt={member.fullName || member.username} 
+                            className="absolute inset-0 w-full h-full object-cover z-10"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                    </div>
+                </div>
+                
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-stone-900 dark:text-white truncate">{member.fullName || member.username}</h3>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${member.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                            {member.status?.toUpperCase() || 'ACTIVE'}
+                        </span>
+                    </div>
+                    <p className="text-sm text-stone-500 dark:text-stone-400">@{member.username}</p>
+                    <p className="text-xs font-mono text-stone-400 mt-1">{member.id}</p>
+                    
+                    {/* Badges */}
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            member.role === UserRole.ADMIN ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 
+                            member.role === UserRole.STUDENT ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                            member.role === UserRole.SUSPENDED ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
+                            member.role === UserRole.BANNED ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+                            'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300'
+                        }`}>
+                            {member.role}
+                        </span>
+                        {formatPosition(member.position) && (
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPositionBadgeColor(member.position)}`}>
+                                {formatPosition(member.position)}
+                            </span>
+                        )}
+                        {member.section && (
+                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 text-xs font-medium">
+                                {member.section}
+                            </span>
                         )}
                     </div>
-                    <button 
-                        onClick={loadMembers}
-                        className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors text-sm font-medium"
-                    >
-                        <RefreshCcw size={16} /> Refresh
-                    </button>
                 </div>
-                <div className="overflow-x-auto min-h-[400px]">
-                    <table className="w-full text-left text-sm text-stone-600 dark:text-stone-300">
-                        <thead className="bg-stone-50 dark:bg-stone-800 text-xs uppercase font-semibold text-stone-500">
-                            <tr>
-                                <th className="p-4">Name</th>
-                                <th className="p-4">ID Code</th>
-                                <th className="p-4">Email</th>
-                                {isAdmin && <th className="p-4">Section</th>}
-                                <th className="p-4 w-48">Role</th>
-                                <th className="p-4">Status</th>
-                                <th className="p-4 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
-                            {members.map(m => (
-                                <tr key={m.id} className="hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors">
-                                    <td className="p-4 font-medium text-stone-900 dark:text-white flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-stone-200 dark:bg-stone-700 overflow-hidden flex items-center justify-center text-xs font-bold text-stone-500 dark:text-stone-300">
-                                            {m.avatar ? <img src={m.avatar} alt="avatar" className="w-full h-full object-cover"/> : m.username.substring(0,2).toUpperCase()}
-                                        </div>
-                                        {m.fullName}
-                                    </td>
-                                    <td className="p-4 font-mono text-xs">{m.id}</td>
-                                    <td className="p-4">{m.email}</td>
-                                    {isAdmin && <td className="p-4 font-bold text-amber-600">{m.section || '-'}</td>}
-                                    <td className="p-4">
-                                        {canEdit ? (
-                                            <CustomSelect 
-                                                value={m.role} 
-                                                onChange={(val) => changeRole(m, val as UserRole)}
-                                                options={Object.values(UserRole).map(r => ({ value: r, label: r }))}
-                                            />
-                                        ) : <span className="px-2 py-1 bg-stone-100 dark:bg-stone-800 rounded text-xs">{m.role}</span>}
-                                    </td>
-                                    <td className="p-4">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${m.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
-                                            {m.status.toUpperCase()}
-                                        </span>
-                                    </td>
-                                    {canEdit && (
-                                        <td className="p-4 text-right">
-                                            <button 
-                                                onClick={() => toggleStatus(m)}
-                                                className={`p-2 rounded-lg transition-colors ${m.status === 'active' ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'}`}
-                                                title={m.status === 'active' ? "Suspend User" : "Activate User"}
-                                            >
-                                                {m.status === 'active' ? <UserX size={18}/> : <UserCheck size={18}/>}
-                                            </button>
-                                        </td>
-                                    )}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                
+                {/* Actions */}
+                <div className="flex flex-col gap-1" onClick={e => e.stopPropagation()}>
+                    <button 
+                        onClick={() => handleViewMember(member)}
+                        className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                        title="View Profile"
+                    >
+                        <Eye size={18}/>
+                    </button>
+                    {canEdit && (
+                        <button 
+                            onClick={() => toggleStatus(member)}
+                            className={`p-2 rounded-lg transition-colors ${member.status === 'active' ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'}`}
+                            title={member.status === 'active' ? "Suspend User" : "Activate User"}
+                        >
+                            {member.status === 'active' ? <UserX size={18}/> : <UserCheck size={18}/>}
+                        </button>
+                    )}
                 </div>
             </div>
+        </div>
+    );
+
+    return (
+        <div className="space-y-6">
+            {/* Tab Navigation - Only show for Admin */}
+            {user.role === UserRole.ADMIN && (
+                <div className="flex space-x-2 border-b border-stone-200 dark:border-stone-800 pb-1">
+                    <button 
+                        onClick={() => setActiveTab('members')} 
+                        className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'members' ? 'bg-amber-600 text-white' : 'text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800 dark:text-stone-400'}`}
+                    >
+                        <UserIcon size={16} />
+                        Members
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('school-structure')} 
+                        className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'school-structure' ? 'bg-amber-600 text-white' : 'text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800 dark:text-stone-400'}`}
+                    >
+                        <GraduationCap size={16} />
+                        School Structure
+                    </button>
+                </div>
+            )}
+            
+            {/* School Structure Tab Content */}
+            {activeTab === 'school-structure' && user.role === UserRole.ADMIN && (
+                <SchoolManagement user={user} />
+            )}
+            
+            {/* Members Tab Content */}
+            {activeTab === 'members' && (
+            <div className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 overflow-hidden">
+                {/* Header */}
+                <div className="p-4 sm:p-6 border-b border-stone-200 dark:border-stone-800">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                            <h2 className="text-xl font-bold text-stone-800 dark:text-white">Member Management</h2>
+                            {user.position === UserPosition.MAYOR && (
+                                <p className="text-sm text-stone-500 mt-1">Showing members in section: <span className="font-bold text-amber-600">{user.section || '1SF'}</span></p>
+                            )}
+                            <p className="text-sm text-stone-500 mt-1">{filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''}</p>
+                        </div>
+                        
+                        {/* Controls */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {/* View Mode Toggle */}
+                            <div className="flex items-center bg-stone-100 dark:bg-stone-800 rounded-lg p-1">
+                                <button
+                                    onClick={() => setViewMode('table')}
+                                    className={`p-2 rounded-md transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-stone-700 shadow-sm text-amber-600' : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'}`}
+                                    title="Table View"
+                                >
+                                    <List size={18} />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('card')}
+                                    className={`p-2 rounded-md transition-colors ${viewMode === 'card' ? 'bg-white dark:bg-stone-700 shadow-sm text-amber-600' : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'}`}
+                                    title="Card View"
+                                >
+                                    <LayoutGrid size={18} />
+                                </button>
+                            </div>
+                            
+                            <button 
+                                onClick={loadMembers}
+                                className="flex items-center gap-2 px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors text-sm font-medium"
+                            >
+                                <RefreshCcw size={16} />
+                                <span className="hidden sm:inline">Refresh</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {/* Filters */}
+                    <div className="flex flex-col sm:flex-row gap-3 mt-4">
+                        {/* Search */}
+                        <div className="flex-1 relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Search by name, username, email, or ID..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 dark:focus:ring-amber-400/50"
+                            />
+                        </div>
+                        
+                        {/* Section Filter */}
+                        <div className="flex items-center gap-2">
+                            <Filter size={18} className="text-stone-400" />
+                            <select
+                                value={sectionFilter}
+                                onChange={(e) => setSectionFilter(e.target.value)}
+                                className="px-3 py-2 bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 dark:focus:ring-amber-400/50 cursor-pointer"
+                            >
+                                <option value="all">All Sections</option>
+                                {availableSections.map(section => (
+                                    <option key={section} value={section}>{section}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                {/* Table View */}
+                {viewMode === 'table' && (
+                    <div className="overflow-x-auto min-h-[400px]">
+                        <table className="w-full text-left text-sm text-stone-600 dark:text-stone-300">
+                            <thead className="bg-stone-50 dark:bg-stone-800 text-xs uppercase font-semibold text-stone-500">
+                                <tr>
+                                    <th className="p-4">Name</th>
+                                    <th className="p-4">ID Code</th>
+                                    <th className="p-4 hidden md:table-cell">Email</th>
+                                    {isAdmin && <th className="p-4">Section</th>}
+                                    <th className="p-4 w-36">Role</th>
+                                    <th className="p-4 w-44">Position</th>
+                                    <th className="p-4">Status</th>
+                                    <th className="p-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                                {filteredMembers.map(m => (
+                                    <tr key={m.id} className="hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors">
+                                        <td className="p-4 font-medium text-stone-900 dark:text-white">
+                                            <div 
+                                                className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                                                onClick={() => handleViewMember(m)}
+                                            >
+                                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 p-0.5">
+                                                    <div className="w-full h-full rounded-full bg-white dark:bg-stone-800 overflow-hidden relative">
+                                                        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-amber-600">
+                                                            {m.username.substring(0,2).toUpperCase()}
+                                                        </div>
+                                                        <img 
+                                                            src={getImageUrl(m.avatar)} 
+                                                            alt={m.fullName || m.username} 
+                                                            className="absolute inset-0 w-full h-full object-cover z-10"
+                                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <p className="font-semibold hover:text-amber-600 transition-colors">{m.fullName}</p>
+                                                    <p className="text-xs text-stone-500">@{m.username}</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="p-4 font-mono text-xs">{m.id}</td>
+                                        <td className="p-4 text-xs hidden md:table-cell">{m.email}</td>
+                                        {isAdmin && <td className="p-4 font-bold text-amber-600">{m.section || '-'}</td>}
+                                        <td className="p-4">
+                                            {canEdit ? (
+                                                <CustomSelect 
+                                                    value={m.role} 
+                                                    onChange={(val) => changeRole(m, val as UserRole)}
+                                                    options={Object.values(UserRole).map(r => ({ value: r, label: r }))}
+                                                />
+                                            ) : <span className="px-2 py-1 bg-stone-100 dark:bg-stone-800 rounded text-xs">{m.role}</span>}
+                                        </td>
+                                        <td className="p-4">
+                                            {canEdit ? (
+                                                <CustomSelect 
+                                                    value={m.position || UserPosition.NONE} 
+                                                    onChange={(val) => changePosition(m, val as UserPosition)}
+                                                    options={Object.values(UserPosition).map(p => ({ 
+                                                        value: p, 
+                                                        label: p === UserPosition.NONE ? '- None -' : p.replace(/_/g, ' ')
+                                                    }))}
+                                                />
+                                            ) : (
+                                                formatPosition(m.position) ? (
+                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${getPositionBadgeColor(m.position)}`}>
+                                                        {formatPosition(m.position)}
+                                                    </span>
+                                                ) : <span className="text-stone-400 text-xs">-</span>
+                                            )}
+                                        </td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${m.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                                                {m.status?.toUpperCase() || 'ACTIVE'}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <button 
+                                                    onClick={() => handleViewMember(m)}
+                                                    className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                                                    title="View Profile"
+                                                >
+                                                    <Eye size={18}/>
+                                                </button>
+                                                {canEdit && (
+                                                    <button 
+                                                        onClick={() => toggleStatus(m)}
+                                                        className={`p-2 rounded-lg transition-colors ${m.status === 'active' ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'}`}
+                                                        title={m.status === 'active' ? "Suspend User" : "Activate User"}
+                                                    >
+                                                        {m.status === 'active' ? <UserX size={18}/> : <UserCheck size={18}/>}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        
+                        {filteredMembers.length === 0 && (
+                            <div className="p-8 text-center text-stone-500">
+                                <UserX size={48} className="mx-auto mb-4 opacity-50" />
+                                <p className="font-medium">No members found</p>
+                                <p className="text-sm">Try adjusting your search or filter</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+                
+                {/* Card View */}
+                {viewMode === 'card' && (
+                    <div className="p-4 sm:p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {filteredMembers.map(m => (
+                                <MemberCard key={m.id} member={m} />
+                            ))}
+                        </div>
+                        
+                        {filteredMembers.length === 0 && (
+                            <div className="p-8 text-center text-stone-500">
+                                <UserX size={48} className="mx-auto mb-4 opacity-50" />
+                                <p className="font-medium">No members found</p>
+                                <p className="text-sm">Try adjusting your search or filter</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+            )}
+
+            {/* Member Profile Modal */}
+            {showMemberDetail && selectedMember && (
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => { if (!isEditing) setShowMemberDetail(false); }}>
+                        <div className="bg-white dark:bg-stone-800 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                            {/* Profile Header */}
+                            <div className="relative h-32 bg-gradient-to-br from-amber-500 via-orange-500 to-red-500">
+                                <div className="absolute inset-0 bg-black/10"></div>
+                                <div className="absolute top-4 right-4 flex gap-2">
+                                    {canEdit && !isEditing && (
+                                        <button 
+                                            onClick={handleStartEdit}
+                                            className="p-2 bg-white/20 hover:bg-white/40 rounded-full text-white transition-colors"
+                                            title="Edit Profile"
+                                        >
+                                            <Edit3 size={20} />
+                                        </button>
+                                    )}
+                                    <button 
+                                        onClick={() => { setShowMemberDetail(false); setIsEditing(false); }}
+                                        className="p-2 bg-black/20 hover:bg-black/40 rounded-full text-white transition-colors"
+                                    >
+                                    <XCircle size={20} />
+                                </button>
+                            </div>
+                            {/* Role & Position Badges */}
+                            <div className="absolute top-4 left-4 flex gap-2 flex-wrap">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
+                                    selectedMember.role === UserRole.ADMIN ? 'bg-red-600' :
+                                    selectedMember.role === UserRole.SUSPENDED ? 'bg-yellow-600' :
+                                    selectedMember.role === UserRole.BANNED ? 'bg-red-800' :
+                                    'bg-stone-600'
+                                }`}>
+                                    {selectedMember.role}
+                                </span>
+                                {formatPosition(selectedMember.position) && (
+                                    <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
+                                        selectedMember.position === UserPosition.MAYOR ? 'bg-purple-600' :
+                                        selectedMember.position === UserPosition.VICE_MAYOR ? 'bg-indigo-600' :
+                                        selectedMember.position === UserPosition.TREASURER ? 'bg-green-600' :
+                                        selectedMember.position === UserPosition.SECRETARY ? 'bg-blue-600' :
+                                        'bg-amber-600'
+                                    }`}>
+                                        {formatPosition(selectedMember.position)}
+                                    </span>
+                                )}
+                            </div>
+                            {isEditing && (
+                                <div className="absolute bottom-4 left-4 bg-amber-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                                    <Edit3 size={12} /> Editing Mode
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Avatar */}
+                        <div className="relative px-6 -mt-16 flex items-end gap-4">
+                            <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 p-1 shadow-xl flex-shrink-0">
+                                <div className="w-full h-full rounded-full bg-white dark:bg-stone-800 overflow-hidden relative">
+                                    <div className="absolute inset-0 flex items-center justify-center text-3xl sm:text-4xl font-bold text-amber-600">
+                                        {selectedMember.fullName?.substring(0,2).toUpperCase() || selectedMember.username.substring(0,2).toUpperCase()}
+                                    </div>
+                                    <img 
+                                        src={getImageUrl(isEditing ? editForm.avatar : selectedMember.avatar)} 
+                                        alt={selectedMember.fullName || selectedMember.username} 
+                                        className="absolute inset-0 w-full h-full object-cover z-10" 
+                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                </div>
+                            </div>
+                            {isEditing && (
+                                <div className="pb-2 flex-1">
+                                    <label className="text-xs text-stone-500 block mb-1">Avatar URL</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.avatar || ''}
+                                        onChange={(e) => updateFormField('avatar', e.target.value)}
+                                        placeholder="Google Drive or image URL"
+                                        className="w-full px-3 py-2 text-sm bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Profile Info */}
+                        <div className="px-6 pt-4 pb-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+                            {/* Name & Status */}
+                            <div className="flex items-start justify-between mb-4">
+                                <div className="flex-1">
+                                    {isEditing ? (
+                                        <div className="space-y-2">
+                                            <input
+                                                type="text"
+                                                value={editForm.fullName || ''}
+                                                onChange={(e) => updateFormField('fullName', e.target.value)}
+                                                placeholder="Full Name"
+                                                className="w-full text-2xl font-bold bg-transparent border-b-2 border-amber-500 focus:outline-none dark:text-white"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-stone-500">@</span>
+                                                <input
+                                                    type="text"
+                                                    value={editForm.username || ''}
+                                                    onChange={(e) => updateFormField('username', e.target.value)}
+                                                    placeholder="username"
+                                                    className="flex-1 bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none text-stone-500 dark:text-stone-400"
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <h2 className="text-2xl font-bold text-stone-900 dark:text-white">{selectedMember.fullName || selectedMember.username}</h2>
+                                            <p className="text-stone-500 dark:text-stone-400">@{selectedMember.username}</p>
+                                        </>
+                                    )}
+                                </div>
+                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${selectedMember.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                                    {selectedMember.status?.toUpperCase() || 'ACTIVE'}
+                                </span>
+                            </div>
+                            
+                            {/* Admin Controls */}
+                            {canEdit && (
+                                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-6">
+                                    <h3 className="text-sm font-bold text-amber-800 dark:text-amber-300 mb-3 flex items-center gap-2">
+                                        <Shield size={16} /> Admin Controls
+                                    </h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs text-stone-500 mb-1 block">Role</label>
+                                            <CustomSelect 
+                                                value={isEditing ? (editForm.role || selectedMember.role) : selectedMember.role} 
+                                                onChange={(val) => {
+                                                    if (isEditing) {
+                                                        updateFormField('role', val as UserRole);
+                                                    } else {
+                                                        changeRole(selectedMember, val as UserRole);
+                                                    }
+                                                }}
+                                                options={Object.values(UserRole).map(r => ({ value: r, label: r }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-stone-500 mb-1 block">Position</label>
+                                            <CustomSelect 
+                                                value={isEditing ? (editForm.position || UserPosition.NONE) : (selectedMember.position || UserPosition.NONE)} 
+                                                onChange={(val) => {
+                                                    if (isEditing) {
+                                                        updateFormField('position', val as UserPosition);
+                                                    } else {
+                                                        changePosition(selectedMember, val as UserPosition);
+                                                    }
+                                                }}
+                                                options={Object.values(UserPosition).map(p => ({ 
+                                                    value: p, 
+                                                    label: p === UserPosition.NONE ? '- None -' : p.replace(/_/g, ' ')
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                                        <button 
+                                            onClick={() => toggleStatus(selectedMember)}
+                                            className={`py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                                                selectedMember.status === 'active' 
+                                                    ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50' 
+                                                    : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50'
+                                            }`}
+                                        >
+                                            {selectedMember.status === 'active' ? <><UserX size={16} /> Suspend</> : <><UserCheck size={16} /> Activate</>}
+                                        </button>
+                                        <button 
+                                            onClick={handleSendPasswordReset}
+                                            disabled={sendingReset}
+                                            className="py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 disabled:opacity-50"
+                                        >
+                                            <Key size={16} /> {sendingReset ? 'Sending...' : 'Reset Password'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Bio */}
+                            {(isEditing || selectedMember.bio) && (
+                                <div className="mb-6">
+                                    <label className="text-xs text-stone-500 mb-1 block">Bio</label>
+                                    {isEditing ? (
+                                        <textarea
+                                            value={editForm.bio || ''}
+                                            onChange={(e) => updateFormField('bio', e.target.value)}
+                                            placeholder="Short bio or description..."
+                                            rows={3}
+                                            className="w-full px-3 py-2 text-sm bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50 resize-none"
+                                        />
+                                    ) : (
+                                        <p className="text-sm text-stone-600 dark:text-stone-400 italic">{selectedMember.bio}</p>
+                                    )}
+                                </div>
+                            )}
+                            
+                            {/* Quick Stats (Editable) */}
+                            <div className="grid grid-cols-3 gap-3 mb-6">
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-3 text-center">
+                                    {isEditing ? (
+                                        <input
+                                            type="text"
+                                            value={editForm.section || ''}
+                                            onChange={(e) => updateFormField('section', e.target.value)}
+                                            placeholder="1SF"
+                                            className="w-full text-center text-lg font-bold text-amber-600 bg-transparent border-b border-amber-400 focus:outline-none"
+                                        />
+                                    ) : (
+                                        <p className="text-lg font-bold text-amber-600">{selectedMember.section || '-'}</p>
+                                    )}
+                                    <p className="text-xs text-stone-500">Section</p>
+                                </div>
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-3 text-center">
+                                    {isEditing ? (
+                                        <input
+                                            type="text"
+                                            value={editForm.yearLevel || ''}
+                                            onChange={(e) => updateFormField('yearLevel', e.target.value)}
+                                            placeholder="1st"
+                                            className="w-full text-center text-lg font-bold text-stone-700 dark:text-stone-300 bg-transparent border-b border-stone-400 focus:outline-none"
+                                        />
+                                    ) : (
+                                        <p className="text-lg font-bold text-stone-700 dark:text-stone-300">{selectedMember.yearLevel || '-'}</p>
+                                    )}
+                                    <p className="text-xs text-stone-500">Year</p>
+                                </div>
+                                <div className="bg-stone-50 dark:bg-stone-900 rounded-xl p-3 text-center">
+                                    {isEditing ? (
+                                        <input
+                                            type="text"
+                                            value={editForm.studentId || ''}
+                                            onChange={(e) => updateFormField('studentId', e.target.value)}
+                                            placeholder="2025-00046"
+                                            className="w-full text-center text-sm font-mono font-bold text-stone-700 dark:text-stone-300 bg-transparent border-b border-stone-400 focus:outline-none"
+                                        />
+                                    ) : (
+                                        <p className="text-sm font-mono font-bold text-stone-700 dark:text-stone-300">{selectedMember.studentId || '-'}</p>
+                                    )}
+                                    <p className="text-xs text-stone-500">Student ID</p>
+                                </div>
+                            </div>
+                            
+                            {/* Contact Information */}
+                            <div className="mb-6">
+                                <h4 className="text-sm font-bold text-stone-700 dark:text-stone-300 mb-3 flex items-center gap-2">
+                                    <Phone size={16} /> Contact Information
+                                </h4>
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="flex items-center gap-3 p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <Mail size={18} className="text-stone-400 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs text-stone-500">University Email</p>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="email"
+                                                        value={editForm.email || ''}
+                                                        onChange={(e) => updateFormField('email', e.target.value)}
+                                                        className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                    />
+                                                ) : (
+                                                    <p className="text-sm font-medium text-stone-700 dark:text-stone-300 truncate">{selectedMember.email}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3 p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <Mail size={18} className="text-stone-400 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs text-stone-500">Personal Email</p>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="email"
+                                                        value={editForm.personalEmail || ''}
+                                                        onChange={(e) => updateFormField('personalEmail', e.target.value)}
+                                                        placeholder="personal@email.com"
+                                                        className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                    />
+                                                ) : (
+                                                    <p className="text-sm font-medium text-stone-700 dark:text-stone-300 truncate">{selectedMember.personalEmail || '-'}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                        <Phone size={18} className="text-stone-400 flex-shrink-0" />
+                                        <div className="flex-1">
+                                            <p className="text-xs text-stone-500">Contact Number</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="tel"
+                                                    value={editForm.contactNumber || ''}
+                                                    onChange={(e) => updateFormField('contactNumber', e.target.value)}
+                                                    placeholder="+63 9XX XXX XXXX"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.contactNumber || '-'}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* School Information */}
+                            <div className="mb-6">
+                                <h4 className="text-sm font-bold text-stone-700 dark:text-stone-300 mb-3 flex items-center gap-2">
+                                    <School size={16} /> School Information
+                                </h4>
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">School</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.school || ''}
+                                                    onChange={(e) => updateFormField('school', e.target.value)}
+                                                    placeholder="University Name"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.school || '-'}</p>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">College</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.college || ''}
+                                                    onChange={(e) => updateFormField('college', e.target.value)}
+                                                    placeholder="College Name"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.college || '-'}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">Program</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.program || ''}
+                                                    onChange={(e) => updateFormField('program', e.target.value)}
+                                                    placeholder="BS Computer Science"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.program || '-'}</p>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">Major</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.major || ''}
+                                                    onChange={(e) => updateFormField('major', e.target.value)}
+                                                    placeholder="Software Engineering"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.major || '-'}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Address */}
+                            <div className="mb-6">
+                                <h4 className="text-sm font-bold text-stone-700 dark:text-stone-300 mb-3 flex items-center gap-2">
+                                    <MapPin size={16} /> Address
+                                </h4>
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">Province</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.province || ''}
+                                                    onChange={(e) => updateFormField('province', e.target.value)}
+                                                    placeholder="Province"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.province || '-'}</p>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">City/Municipality</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.city || ''}
+                                                    onChange={(e) => updateFormField('city', e.target.value)}
+                                                    placeholder="City"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.city || '-'}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">Barangay</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.barangay || ''}
+                                                    onChange={(e) => updateFormField('barangay', e.target.value)}
+                                                    placeholder="Barangay"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.barangay || '-'}</p>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                            <p className="text-xs text-stone-500">Purok / House No.</p>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.purokHouseNumber || ''}
+                                                    onChange={(e) => updateFormField('purokHouseNumber', e.target.value)}
+                                                    placeholder="Purok 1, House #123"
+                                                    className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                                />
+                                            ) : (
+                                                <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.purokHouseNumber || '-'}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Emergency Contact */}
+                            <div className="mb-6">
+                                <h4 className="text-sm font-bold text-stone-700 dark:text-stone-300 mb-3 flex items-center gap-2">
+                                    <AlertCircle size={16} /> Emergency Contact
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                        <p className="text-xs text-stone-500">Contact Person</p>
+                                        {isEditing ? (
+                                            <input
+                                                type="text"
+                                                value={editForm.emergencyPerson || ''}
+                                                onChange={(e) => updateFormField('emergencyPerson', e.target.value)}
+                                                placeholder="Parent/Guardian Name"
+                                                className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                            />
+                                        ) : (
+                                            <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.emergencyPerson || '-'}</p>
+                                        )}
+                                    </div>
+                                    <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl">
+                                        <p className="text-xs text-stone-500">Emergency Number</p>
+                                        {isEditing ? (
+                                            <input
+                                                type="tel"
+                                                value={editForm.emergencyContact || ''}
+                                                onChange={(e) => updateFormField('emergencyContact', e.target.value)}
+                                                placeholder="+63 9XX XXX XXXX"
+                                                className="w-full text-sm font-medium bg-transparent border-b border-stone-300 dark:border-stone-600 focus:outline-none dark:text-stone-300"
+                                            />
+                                        ) : (
+                                            <p className="text-sm font-medium text-stone-700 dark:text-stone-300">{selectedMember.emergencyContact || '-'}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Social Links */}
+                            <div className="mb-6">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-sm font-bold text-stone-700 dark:text-stone-300 flex items-center gap-2">
+                                        <Globe size={16} /> Social Links
+                                    </h4>
+                                    {isEditing && (
+                                        <button
+                                            onClick={handleAddSocialLink}
+                                            className="text-xs text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                                        >
+                                            <Plus size={14} /> Add Link
+                                        </button>
+                                    )}
+                                </div>
+                                {isEditing ? (
+                                    <div className="space-y-2">
+                                        {(editForm.socialLinks || []).map(link => (
+                                            <div key={link.id} className="flex items-center gap-2 p-2 bg-stone-50 dark:bg-stone-900 rounded-lg">
+                                                <select
+                                                    value={link.platform}
+                                                    onChange={(e) => handleUpdateSocialLink(link.id, 'platform', e.target.value)}
+                                                    className="px-2 py-1 text-xs bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded"
+                                                >
+                                                    <option value="Facebook">Facebook</option>
+                                                    <option value="Instagram">Instagram</option>
+                                                    <option value="Twitter">Twitter</option>
+                                                    <option value="LinkedIn">LinkedIn</option>
+                                                    <option value="GitHub">GitHub</option>
+                                                    <option value="Website">Website</option>
+                                                    <option value="TikTok">TikTok</option>
+                                                    <option value="Discord">Discord</option>
+                                                    <option value="Other">Other</option>
+                                                </select>
+                                                <input
+                                                    type="url"
+                                                    value={link.url}
+                                                    onChange={(e) => handleUpdateSocialLink(link.id, 'url', e.target.value)}
+                                                    placeholder="https://..."
+                                                    className="flex-1 px-2 py-1 text-xs bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded"
+                                                />
+                                                <button
+                                                    onClick={() => handleRemoveSocialLink(link.id)}
+                                                    className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {(!editForm.socialLinks || editForm.socialLinks.length === 0) && (
+                                            <p className="text-xs text-stone-400 italic text-center py-2">No social links added</p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                        {selectedMember.socialLinks && selectedMember.socialLinks.length > 0 ? (
+                                            selectedMember.socialLinks.map(link => (
+                                                <a 
+                                                    key={link.id} 
+                                                    href={link.url} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="px-3 py-1 bg-stone-50 dark:bg-stone-900 rounded-full text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border border-stone-200 dark:border-stone-700"
+                                                >
+                                                    {link.platform}
+                                                </a>
+                                            ))
+                                        ) : (
+                                            <p className="text-xs text-stone-400 italic">No social links</p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Footer */}
+                            <div className="mt-6 pt-4 border-t border-stone-200 dark:border-stone-700">
+                                {isEditing ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <button
+                                            onClick={handleCancelEdit}
+                                            className="px-4 py-2 bg-stone-200 dark:bg-stone-700 rounded-lg text-sm font-medium hover:bg-stone-300 dark:hover:bg-stone-600 transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleSaveChanges}
+                                            disabled={isSaving}
+                                            className="px-6 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                                        >
+                                            <Save size={16} /> {isSaving ? 'Saving...' : 'Save Changes'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs text-stone-500">
+                                            Member since {selectedMember.registeredAt ? new Date(selectedMember.registeredAt).toLocaleDateString() : 'Unknown'}
+                                        </p>
+                                        <div className="flex gap-2">
+                                            {canEdit && (
+                                                <button
+                                                    onClick={handleStartEdit}
+                                                    className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors flex items-center gap-2"
+                                                >
+                                                    <Edit3 size={16} /> Edit
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => setShowMemberDetail(false)}
+                                                className="px-4 py-2 bg-stone-200 dark:bg-stone-700 rounded-lg text-sm font-medium hover:bg-stone-300 dark:hover:bg-stone-600 transition-colors"
+                                            >
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
         </div>
     );
 };
@@ -576,6 +2243,7 @@ export const PublicPortalManagement: React.FC<{ user: User }> = ({ user }) => {
     const [achievements, setAchievements] = useState<Achievement[]>([]);
     const [settings, setSettingsState] = useState<ClassSettings>(getSettings());
     const [logoInput, setLogoInput] = useState(settings.logoUrl);
+    const [maxAttempts, setMaxAttempts] = useState(settings.maxApplicationAttempts || 5);
     const [imgUrl, setImgUrl] = useState('');
     const [caption, setCaption] = useState('');
     const [achTitle, setAchTitle] = useState('');
@@ -591,7 +2259,7 @@ export const PublicPortalManagement: React.FC<{ user: User }> = ({ user }) => {
 
     const handleSaveSettings = (e: React.FormEvent) => {
         e.preventDefault();
-        const newSettings = { ...settings, logoUrl: logoInput };
+        const newSettings = { ...settings, logoUrl: logoInput, maxApplicationAttempts: maxAttempts };
         updateSettings(newSettings);
         setSettingsState(newSettings);
         showToast('Class settings updated!', 'success');
@@ -735,13 +2403,54 @@ export const PublicPortalManagement: React.FC<{ user: User }> = ({ user }) => {
                     </div>
                 )}
                 {activeTab === 'SETTINGS' && (
-                    <form onSubmit={handleSaveSettings} className="bg-stone-50 dark:bg-stone-800 p-4 rounded-lg flex gap-4 items-end">
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-stone-600 dark:text-stone-400 mb-1">Class Logo URL</label>
-                            <input type="text" className="input-field w-full" value={logoInput} onChange={e => setLogoInput(e.target.value)} />
+                    <form onSubmit={handleSaveSettings} className="bg-stone-50 dark:bg-stone-800 p-4 rounded-lg space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-stone-600 dark:text-stone-400 mb-2">Class Logo</label>
+                            <div className="flex items-start gap-4">
+                                {logoInput && (
+                                    <div className="w-20 h-20 rounded-lg overflow-hidden bg-stone-100 dark:bg-stone-700 border border-stone-200 dark:border-stone-600 flex-shrink-0">
+                                        <img 
+                                            src={getImageUrl(logoInput)} 
+                                            alt="Class Logo Preview" 
+                                            className="w-full h-full object-contain" 
+                                            onError={(e) => (e.currentTarget.src='https://via.placeholder.com/150')} 
+                                        />
+                                    </div>
+                                )}
+                                <div className="flex-1">
+                                    <FileUploader
+                                        label="Upload Class Logo"
+                                        initialUrl={logoInput}
+                                        onUpload={(url) => setLogoInput(url)}
+                                        accept="image/*"
+                                        uploadAction="uploadClassLogo"
+                                    />
+                                    <p className="text-xs text-stone-500 mt-1">Or paste URL directly:</p>
+                                    <input 
+                                        type="text" 
+                                        className="input-field w-full mt-1 text-xs" 
+                                        value={logoInput} 
+                                        onChange={e => setLogoInput(e.target.value)} 
+                                        placeholder="https://..."
+                                    />
+                                </div>
+                            </div>
                         </div>
-                        <img src={logoInput} alt="Preview" className="w-12 h-12 rounded-full border border-stone-200 object-cover" onError={(e) => (e.currentTarget.src='https://via.placeholder.com/150')} />
-                        <button type="submit" className="btn-primary flex items-center px-4 py-2"><Save size={16} className="mr-2" /> Save</button>
+                        <div className="flex gap-4 items-end">
+                            <div className="w-48">
+                                <label className="block text-sm font-medium text-stone-600 dark:text-stone-400 mb-1">Max Application Attempts</label>
+                                <input 
+                                    type="number" 
+                                    min="1" 
+                                    max="10" 
+                                    className="input-field w-full" 
+                                    value={maxAttempts} 
+                                    onChange={e => setMaxAttempts(Math.max(1, Math.min(10, parseInt(e.target.value) || 5)))} 
+                                />
+                                <p className="text-xs text-stone-500 mt-1">How many times a rejected applicant can reapply</p>
+                            </div>
+                            <button type="submit" className="btn-primary flex items-center px-4 py-2"><Save size={16} className="mr-2" /> Save</button>
+                        </div>
                     </form>
                 )}
             </div>
@@ -774,7 +2483,7 @@ export const FinanceModule: React.FC<{ user: User }> = ({ user }) => {
     const [liqCategory, setLiqCategory] = useState('Materials');
 
     const canManage = PERMISSIONS.CAN_MANAGE_FINANCE.includes(user.role);
-    const isAuditor = user.role === UserRole.AUDITOR || user.role === UserRole.ADMIN;
+    const isAuditor = user.position === UserPosition.AUDITOR || user.role === UserRole.ADMIN;
 
     useEffect(() => {
         refreshData();

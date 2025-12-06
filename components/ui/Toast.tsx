@@ -7,10 +7,12 @@ interface Toast {
   id: string;
   message: string;
   type: ToastType;
+  actionLabel?: string;
+  action?: () => void;
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (message: string, type?: ToastType, actionLabel?: string, action?: () => void) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -18,14 +20,16 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info', actionLabel?: string, action?: () => void) => {
     const id = Date.now().toString();
-    setToasts((prev) => [...prev, { id, message, type }]);
-    
-    // Auto remove after 3 seconds
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+    setToasts((prev) => [...prev, { id, message, type, actionLabel, action }]);
+
+    // Auto remove after 4 seconds unless it has an action
+    if (!action) {
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4000);
+    }
   }, []);
 
   const removeToast = (id: string) => {
@@ -53,7 +57,17 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               {toast.type === 'warning' && <AlertTriangle className="w-5 h-5" />}
               {toast.type === 'info' && <Info className="w-5 h-5" />}
             </div>
-            <div className="ml-3 text-sm font-medium">{toast.message}</div>
+            <div className="ml-3 text-sm font-medium mr-2">{toast.message}</div>
+            {toast.action && toast.actionLabel && (
+              <button
+                className="ml-auto mr-2 px-2 py-1 text-xs font-semibold bg-white/20 hover:bg-white/30 rounded"
+                onClick={() => {
+                  try { toast.action?.(); } finally { removeToast(toast.id); }
+                }}
+              >
+                {toast.actionLabel}
+              </button>
+            )}
             <button
               type="button"
               className="ml-auto -mx-1.5 -my-1.5 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-white p-1.5 hover:bg-white/20 inline-flex h-8 w-8 items-center justify-center"

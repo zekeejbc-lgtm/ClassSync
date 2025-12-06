@@ -2,16 +2,16 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, get, set, push, remove, update, onValue, off, DataSnapshot } from 'firebase/database';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
-// Firebase configuration
+// Firebase configuration - uses environment variables with fallback to hardcoded values for development
 const firebaseConfig = {
-  apiKey: "AIzaSyA461N1_QS1gpHMpQPqQfQyQEjRvpmS1Jc",
-  authDomain: "classsync-d900e.firebaseapp.com",
-  databaseURL: "https://classsync-d900e-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "classsync-d900e",
-  storageBucket: "classsync-d900e.firebasestorage.app",
-  messagingSenderId: "730730524428",
-  appId: "1:730730524428:web:4f35a4c3b9dcbe6c976329",
-  measurementId: "G-507HC15HCW"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA461N1_QS1gpHMpQPqQfQyQEjRvpmS1Jc",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "classsync-d900e.firebaseapp.com",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://classsync-d900e-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "classsync-d900e",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "classsync-d900e.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "730730524428",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:730730524428:web:4f35a4c3b9dcbe6c976329",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-507HC15HCW"
 };
 
 // Initialize Firebase
@@ -52,6 +52,26 @@ export const dbRefs = {
   journalEntry: (id: string) => ref(database, `journal/${id}`),
   applications: () => ref(database, 'applications'),
   application: (id: string) => ref(database, `applications/${id}`),
+  
+  // School Structure References
+  schools: () => ref(database, 'schools'),
+  school: (id: string) => ref(database, `schools/${id}`),
+  departments: () => ref(database, 'departments'),
+  department: (id: string) => ref(database, `departments/${id}`),
+  colleges: () => ref(database, 'colleges'),
+  college: (id: string) => ref(database, `colleges/${id}`),
+  programs: () => ref(database, 'programs'),
+  program: (id: string) => ref(database, `programs/${id}`),
+  majors: () => ref(database, 'majors'),
+  major: (id: string) => ref(database, `majors/${id}`),
+  tracks: () => ref(database, 'tracks'),
+  track: (id: string) => ref(database, `tracks/${id}`),
+  strands: () => ref(database, 'strands'),
+  strand: (id: string) => ref(database, `strands/${id}`),
+  yearLevels: () => ref(database, 'yearLevels'),
+  yearLevel: (id: string) => ref(database, `yearLevels/${id}`),
+  sections: () => ref(database, 'sections'),
+  section: (id: string) => ref(database, `sections/${id}`),
 };
 
 // Helper functions for database operations

@@ -5,6 +5,28 @@ import { updateUser, uploadProfilePicture } from '../services/dataService';
 import { useToast } from './ui/Toast';
 import { Save, Mail, Phone, User as UserIcon, Briefcase, Key, CheckCircle, Eye, EyeOff, Hash, ShieldCheck, Upload, Loader2 } from 'lucide-react';
 
+// Helper to transform Google Drive URLs for better image embedding
+const getImageUrl = (url: string | undefined): string => {
+    if (!url) return '';
+    
+    let fileId = '';
+    
+    if (url.includes('drive.google.com/uc?export=view&id=')) {
+        fileId = url.split('id=')[1]?.split('&')[0] || '';
+    } else if (url.includes('drive.google.com/thumbnail?id=')) {
+        fileId = url.split('id=')[1]?.split('&')[0] || '';
+    } else if (url.includes('drive.google.com/file/d/')) {
+        const match = url.match(/\/file\/d\/([^\/]+)/);
+        if (match) fileId = match[1];
+    }
+    
+    if (fileId) {
+        return `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+    }
+    
+    return url;
+};
+
 interface ProfileProps {
   user: User;
   onUserUpdate?: () => void;
@@ -97,12 +119,16 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUserUpdate }) => {
         <div className="px-8 pb-8">
           <div className="relative flex flex-col sm:flex-row items-center sm:items-end -mt-12 mb-6 gap-4">
              <div className="w-32 h-32 relative">
-                <div className="w-full h-full rounded-full border-4 border-white dark:border-stone-800 bg-stone-200 shadow-md overflow-hidden flex items-center justify-center">
-                    {formData.avatar ? (
-                        <img src={formData.avatar} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                        <span className="text-3xl font-bold text-stone-400">{user.username.substring(0,2).toUpperCase()}</span>
-                    )}
+                <div className="w-full h-full rounded-full border-4 border-white dark:border-stone-800 bg-stone-200 shadow-md overflow-hidden relative">
+                    <div className="absolute inset-0 flex items-center justify-center text-3xl font-bold text-stone-400">
+                        {user.username.substring(0,2).toUpperCase()}
+                    </div>
+                    <img 
+                        src={getImageUrl(formData.avatar)} 
+                        alt="Profile" 
+                        className="absolute inset-0 w-full h-full object-cover z-10" 
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
                 </div>
                 {/* We use a specialized modal or section for editing avatar, but here we can just put a small trigger or rely on the form below. 
                     Actually, let's just make the avatar area static here and put the uploader in the form.
@@ -112,7 +138,9 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUserUpdate }) => {
              <div className="text-center sm:text-left flex-1">
                  <h1 className="text-2xl font-bold text-stone-800 dark:text-stone-100 flex items-center justify-center sm:justify-start gap-2">
                      {user.fullName}
-                     <ShieldCheck className="text-green-500 w-5 h-5" title="Verified Account" />
+                     <span title="Verified Account" aria-label="Verified Account">
+                        <ShieldCheck className="text-green-500 w-5 h-5" />
+                     </span>
                  </h1>
                  <p className="text-amber-700 dark:text-amber-500 font-medium">{user.role}</p>
              </div>
@@ -165,14 +193,16 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUserUpdate }) => {
                   <div>
                       <label className="block text-sm font-medium text-stone-600 dark:text-stone-400 mb-1">Profile Picture</label>
                       <div className="flex items-center gap-4">
-                          <div className="w-20 h-20 rounded-full overflow-hidden bg-stone-200 dark:bg-stone-700 flex-shrink-0">
-                              {formData.avatar ? (
-                                  <img src={formData.avatar} alt="Avatar" className="w-full h-full object-cover" />
-                              ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-stone-400">
-                                      <UserIcon size={32} />
-                                  </div>
-                              )}
+                          <div className="w-20 h-20 rounded-full overflow-hidden bg-stone-200 dark:bg-stone-700 flex-shrink-0 relative">
+                              <div className="absolute inset-0 flex items-center justify-center text-stone-400">
+                                  <UserIcon size={32} />
+                              </div>
+                              <img 
+                                  src={getImageUrl(formData.avatar)} 
+                                  alt="Avatar" 
+                                  className="absolute inset-0 w-full h-full object-cover z-10" 
+                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
                           </div>
                           <div className="flex-1">
                               <label className={`

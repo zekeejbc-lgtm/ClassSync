@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import { Auth } from './components/Auth';
 import Dashboard from './components/Dashboard';
@@ -10,12 +10,14 @@ import { MemberManagement, FinanceModule, AttendanceModule, AccessLogs, PublicPo
 import { Profile } from './components/Profile';
 import { JournalModule } from './components/Journal';
 import { User, UserRole } from './types';
-import { getCurrentUser, logout } from './services/dataService';
+import { getCurrentUser, logout, getSettings } from './services/dataService';
 import { PERMISSIONS } from './constants';
 import { ToastProvider } from './components/ui/Toast';
 import { ThemeProvider } from './components/ThemeContext';
 import { OfflineIndicator } from './components/ui/OfflineIndicator';
 import { InstallPrompt } from './components/ui/InstallPrompt';
+import { ConnectionStatus } from './components/ui/ConnectionStatus';
+import Registration from './components/Registration';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -34,6 +36,30 @@ const ProtectedRoute = ({ children, allowedRoles, user }: ProtectedRouteProps) =
          </div>;
      }
      return <>{children}</>;
+};
+
+// Wrapper component for Registration that handles navigation state
+const RegisterPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
+    const location = useLocation();
+    const settings = getSettings();
+    
+    const handleComplete = (result: any) => {
+        // For applications, just navigate back - don't log in
+        if (result.isApplication) {
+            window.location.href = '/#/';
+        } else if (result.id) {
+            onLogin(result);
+        }
+    };
+    
+    return (
+        <Registration
+            onComplete={handleComplete}
+            onCancel={() => { window.location.href = '/#/login'; }}
+            logoUrl={settings.logoUrl || ''}
+            appName={settings.className || 'ClassSync'}
+        />
+    );
 };
 
 const App: React.FC = () => {
@@ -74,6 +100,7 @@ const App: React.FC = () => {
                     {/* Public Routes */}
                     <Route path="/" element={<LandingPage />} />
                     <Route path="/login" element={!user ? <Auth onLogin={setUser} /> : <Navigate to="/dashboard" />} />
+                    <Route path="/register" element={<RegisterPage onLogin={setUser} />} />
 
                     {/* Protected Routes */}
                     {user ? (
@@ -126,6 +153,8 @@ const App: React.FC = () => {
             {/* PWA Components */}
             <OfflineIndicator />
             <InstallPrompt />
+            {/* Debug/Connection Status */}
+            <ConnectionStatus />
         </ToastProvider>
     </ThemeProvider>
   );

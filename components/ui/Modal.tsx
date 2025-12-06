@@ -1,5 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -9,6 +10,12 @@ interface ModalProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
 }
+
+// Portal wrapper for rendering modals at document body level
+// This ensures backdrop blur works correctly even when parent has overflow-hidden
+export const ModalPortal: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return createPortal(children, document.body);
+};
 
 export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, footer }) => {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -32,36 +39,38 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
-        onClick={onClose}
-      ></div>
-      
-      <div 
-        ref={modalRef}
-        className="relative w-full max-w-lg bg-white dark:bg-stone-900 rounded-2xl shadow-2xl transform transition-all animate-in flex flex-col max-h-[90vh] border border-stone-200 dark:border-stone-800"
-      >
-        <div className="flex items-center justify-between p-6 border-b border-stone-100 dark:border-stone-800">
-          <h3 className="text-xl font-bold text-stone-800 dark:text-stone-100 tracking-tight">{title}</h3>
-          <button 
-            onClick={onClose}
-            className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-full transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <ModalPortal>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 md:p-6">
+        <div 
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
+          onClick={onClose}
+        ></div>
         
-        <div className="p-6 overflow-y-auto custom-scrollbar">
-          {children}
-        </div>
-
-        {footer && (
-          <div className="p-6 border-t border-stone-100 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 rounded-b-2xl flex justify-end gap-3">
-            {footer}
+        <div 
+          ref={modalRef}
+          className="relative w-full max-w-lg bg-white dark:bg-stone-900 rounded-xl sm:rounded-2xl shadow-2xl transform transition-all animate-in flex flex-col max-h-[95vh] sm:max-h-[90vh] border border-stone-200 dark:border-stone-800"
+        >
+          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-stone-100 dark:border-stone-800">
+            <h3 className="text-lg sm:text-xl font-bold text-stone-800 dark:text-stone-100 tracking-tight pr-2">{title}</h3>
+            <button 
+              onClick={onClose}
+              className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 sm:p-2 rounded-full transition-colors flex-shrink-0"
+            >
+              <X size={18} className="sm:hidden" /><X size={20} className="hidden sm:block" />
+            </button>
           </div>
-        )}
+          
+          <div className="p-4 sm:p-6 overflow-y-auto custom-scrollbar">
+            {children}
+          </div>
+
+          {footer && (
+            <div className="p-4 sm:p-6 border-t border-stone-100 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 rounded-b-xl sm:rounded-b-2xl flex justify-end gap-2 sm:gap-3">
+              {footer}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };

@@ -11,6 +11,28 @@ import { PERMISSIONS } from '../constants';
 import { getSettings } from '../services/dataService';
 import { useTheme } from './ThemeContext';
 
+// Helper to transform Google Drive URLs for better image embedding
+const getImageUrl = (url: string | undefined): string => {
+    if (!url) return '';
+    
+    let fileId = '';
+    
+    if (url.includes('drive.google.com/uc?export=view&id=')) {
+        fileId = url.split('id=')[1]?.split('&')[0] || '';
+    } else if (url.includes('drive.google.com/thumbnail?id=')) {
+        fileId = url.split('id=')[1]?.split('&')[0] || '';
+    } else if (url.includes('drive.google.com/file/d/')) {
+        const match = url.match(/\/file\/d\/([^\/]+)/);
+        if (match) fileId = match[1];
+    }
+    
+    if (fileId) {
+        return `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+    }
+    
+    return url;
+};
+
 interface LayoutProps {
   children: React.ReactNode;
   user: User;
@@ -139,12 +161,16 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 className="flex items-center space-x-3 bg-stone-800/50 dark:bg-stone-900/50 p-3 rounded-xl border border-stone-700 dark:border-stone-800 cursor-pointer hover:bg-stone-800 dark:hover:bg-stone-800 transition-colors group"
                 onClick={() => navigate('/profile')}
             >
-              <div className="w-10 h-10 rounded-full bg-amber-700 flex items-center justify-center text-sm font-bold overflow-hidden border-2 border-amber-900/50 group-hover:border-amber-500 transition-colors">
-                {user.avatar ? (
-                    <img src={user.avatar} alt={user.username} className="w-full h-full object-cover" />
-                ) : (
-                    user.username.substring(0,2).toUpperCase()
-                )}
+              <div className="w-10 h-10 rounded-full bg-amber-700 flex items-center justify-center text-sm font-bold overflow-hidden border-2 border-amber-900/50 group-hover:border-amber-500 transition-colors relative">
+                <div className="absolute inset-0 flex items-center justify-center">
+                    {user.username.substring(0,2).toUpperCase()}
+                </div>
+                <img 
+                    src={getImageUrl(user.avatar)} 
+                    alt={user.username} 
+                    className="absolute inset-0 w-full h-full object-cover z-10" 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
               </div>
               <div className="overflow-hidden">
                 <p className="text-sm font-medium truncate text-amber-50 group-hover:text-amber-400 transition-colors">{user.fullName}</p>

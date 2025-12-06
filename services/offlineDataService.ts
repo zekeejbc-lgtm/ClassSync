@@ -7,6 +7,36 @@ import { onValue } from 'firebase/database';
 // Current user key in localStorage (for quick access)
 const CURRENT_USER_KEY = 'cs_current_user';
 
+// Simple versioning helpers for conflict avoidance
+type Versioned<T extends { id: string }> = T & { updatedAt?: number };
+const withVersion = <T extends { id: string; updatedAt?: number }>(entity: T): Versioned<T> => ({
+    ...entity,
+    updatedAt: entity.updatedAt ?? Date.now()
+});
+const isNewer = (incoming?: { updatedAt?: number }, existing?: { updatedAt?: number }) =>
+    (incoming?.updatedAt ?? 0) >= (existing?.updatedAt ?? 0);
+
+const putVersioned = async <T extends { id: string; updatedAt?: number }>(table: any, entity: T) => {
+    await table.put(withVersion(entity));
+};
+
+const bulkPutVersioned = async <T extends { id: string; updatedAt?: number }>(table: any, entities: T[]) => {
+    if (!entities.length) return;
+    await table.bulkPut(entities.map(withVersion));
+};
+
+const applyIncomingList = async <T extends { id: string; updatedAt?: number }>(table: any, items: T[]) => {
+    for (const item of items) {
+        const existing = await table.get(item.id);
+        if (!existing || isNewer(item, existing)) {
+            await table.put(item);
+        }
+    }
+};
+
+let lastSyncAt = 0;
+let pendingSyncCount = 0;
+
 // --- Initialize Empty Data in Dexie (NO demo accounts) ---
 const initializeMockData = async () => {
     const userCount = await db.users.count();
@@ -14,11 +44,12 @@ const initializeMockData = async () => {
         console.log('Initializing empty data in Dexie (no demo accounts)...');
         
         // Initialize with empty settings
-        const initialSettings: ClassSettings & { id: string } = {
+        const initialSettings: ClassSettings & { id: string; updatedAt?: number } = {
             id: 'main',
             logoUrl: LOGO_URL,
             className: APP_NAME,
-            academicYear: '2024-2025'
+            academicYear: '2024-2025',
+            updatedAt: Date.now()
         };
         await db.settings.put(initialSettings);
 
@@ -27,20 +58,21 @@ const initializeMockData = async () => {
 };
 
 // --- Firebase Sync ---
-const syncToFirebase = async <T extends { id: string }>(
+const syncToFirebase = async <T extends { id: string; updatedAt?: number }>(
     refFn: (id: string) => ReturnType<typeof dbRefs.user>,
     item: T,
     collection: string
 ) => {
+    const payload = withVersion(item);
     if (isOnline()) {
         try {
-            await dbHelpers.setData(refFn(item.id), item);
+            await dbHelpers.setData(refFn(payload.id), payload);
         } catch (error) {
             console.error('Firebase sync error:', error);
-            await addToSyncQueue('update', collection, item.id, item);
+            await addToSyncQueue('update', collection, payload.id, payload);
         }
     } else {
-        await addToSyncQueue('update', collection, item.id, item);
+        await addToSyncQueue('update', collection, payload.id, payload);
     }
 };
 
@@ -69,34 +101,50 @@ export const syncPendingChanges = async () => {
     if (pending.length === 0) return;
     
     console.log(`Syncing ${pending.length} pending changes...`);
+    pendingSyncCount = pending.length;
+
     const syncedIds: number[] = [];
+    const refMap: Record<string, (id: string) => any> = {
+        users: dbRefs.user,
+        todos: dbRefs.todo,
+        transactions: dbRefs.transaction,
+        attendance: dbRefs.attendanceRecord,
+        logs: dbRefs.log,
+        announcements: dbRefs.announcement,
+        schedule: dbRefs.scheduleItem,
+        album: dbRefs.albumImage,
+        achievements: dbRefs.achievement,
+        excuses: dbRefs.excuse,
+        complaints: dbRefs.complaint,
+        feedback: dbRefs.feedbackItem,
+        campaigns: dbRefs.campaign,
+        journal: dbRefs.journalEntry
+    };
+
+    const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+    const retryWithBackoff = async (fn: () => Promise<void>, maxAttempts = 3, baseDelay = 300) => {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                await fn();
+                return;
+            } catch (err) {
+                if (attempt === maxAttempts) throw err;
+                const delay = baseDelay * Math.pow(2, attempt - 1);
+                console.warn(`Retrying sync (attempt ${attempt}/${maxAttempts}) in ${delay}ms`);
+                await sleep(delay);
+            }
+        }
+    };
     
     for (const item of pending) {
         try {
-            const refMap: Record<string, (id: string) => any> = {
-                users: dbRefs.user,
-                todos: dbRefs.todo,
-                transactions: dbRefs.transaction,
-                attendance: dbRefs.attendanceRecord,
-                logs: dbRefs.log,
-                announcements: dbRefs.announcement,
-                schedule: dbRefs.scheduleItem,
-                album: dbRefs.albumImage,
-                achievements: dbRefs.achievement,
-                excuses: dbRefs.excuse,
-                complaints: dbRefs.complaint,
-                feedback: dbRefs.feedbackItem,
-                campaigns: dbRefs.campaign,
-                journal: dbRefs.journalEntry
-            };
-            
             const refFn = refMap[item.collection];
             if (!refFn) continue;
             
             if (item.action === 'delete') {
-                await dbHelpers.removeData(refFn(item.docId));
+                await retryWithBackoff(() => dbHelpers.removeData(refFn(item.docId)));
             } else {
-                await dbHelpers.setData(refFn(item.docId), item.data);
+                await retryWithBackoff(() => dbHelpers.setData(refFn(item.docId), item.data));
             }
             
             if (item.id) syncedIds.push(item.id);
@@ -109,6 +157,9 @@ export const syncPendingChanges = async () => {
         await markAsSynced(syncedIds);
         console.log(`Synced ${syncedIds.length} changes to Firebase`);
     }
+
+    pendingSyncCount = await getPendingSyncItems().then(items => items.length);
+    lastSyncAt = Date.now();
 };
 
 // --- Setup Firebase real-time listeners ---
@@ -118,7 +169,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const users = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.users.bulkPut(users);
+            await applyIncomingList(db.users, users);
         }
     });
 
@@ -127,7 +178,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const todos = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.todos.bulkPut(todos);
+            await applyIncomingList(db.todos, todos);
         }
     });
 
@@ -136,7 +187,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const txs = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.transactions.bulkPut(txs);
+            await applyIncomingList(db.transactions, txs);
         }
     });
 
@@ -145,7 +196,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const records = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.attendance.bulkPut(records);
+            await applyIncomingList(db.attendance, records);
         }
     });
 
@@ -154,7 +205,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const announcements = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.announcements.bulkPut(announcements);
+            await applyIncomingList(db.announcements, announcements);
         }
     });
 
@@ -163,7 +214,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const schedule = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.schedule.bulkPut(schedule);
+            await applyIncomingList(db.schedule, schedule);
         }
     });
 
@@ -171,8 +222,11 @@ const setupFirebaseListeners = () => {
     onValue(dbRefs.settings(), async (snapshot) => {
         if (snapshot.exists()) {
             const settings = { ...snapshot.val(), id: 'main' };
-            await db.settings.put(settings);
-            window.dispatchEvent(new Event('settingsUpdated'));
+            const existing = await db.settings.get('main');
+            if (!existing || isNewer(settings as any, existing as any)) {
+                await db.settings.put(settings);
+                window.dispatchEvent(new Event('settingsUpdated'));
+            }
         }
     });
 
@@ -181,7 +235,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const album = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.album.bulkPut(album);
+            await applyIncomingList(db.album, album);
         }
     });
 
@@ -190,7 +244,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const achievements = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.achievements.bulkPut(achievements);
+            await applyIncomingList(db.achievements, achievements);
         }
     });
 
@@ -199,7 +253,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const excuses = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.excuses.bulkPut(excuses);
+            await applyIncomingList(db.excuses, excuses);
         }
     });
 
@@ -208,7 +262,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const complaints = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.complaints.bulkPut(complaints);
+            await applyIncomingList(db.complaints, complaints);
         }
     });
 
@@ -217,7 +271,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const feedbacks = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.feedback.bulkPut(feedbacks);
+            await applyIncomingList(db.feedback, feedbacks);
         }
     });
 
@@ -226,7 +280,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const campaigns = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.campaigns.bulkPut(campaigns);
+            await applyIncomingList(db.campaigns, campaigns);
         }
     });
 
@@ -235,7 +289,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const journal = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.journal.bulkPut(journal);
+            await applyIncomingList(db.journal, journal);
         }
     });
 
@@ -244,7 +298,7 @@ const setupFirebaseListeners = () => {
         if (snapshot.exists()) {
             const data = snapshot.val();
             const logs = Object.keys(data).map(key => ({ ...data[key], id: key }));
-            await db.logs.bulkPut(logs);
+            await applyIncomingList(db.logs, logs);
         }
     });
 };
@@ -355,7 +409,7 @@ export const login = async (identifier: string, _pass: string): Promise<User | n
 };
 
 export const registerUser = async (user: User) => {
-    await db.users.put(user);
+    await putVersioned(db.users, user);
     await syncToFirebase(dbRefs.user, user, 'users');
     await logAccess('SYSTEM', 'REGISTER', `New user registered: ${user.username}`);
 };
@@ -366,7 +420,7 @@ export const getUsers = async (): Promise<User[]> => {
 };
 
 export const updateUser = async (updatedUser: User) => {
-    await db.users.put(updatedUser);
+    await putVersioned(db.users, updatedUser);
     await syncToFirebase(dbRefs.user, updatedUser, 'users');
     
     const currentUser = getCurrentUser();
@@ -381,7 +435,7 @@ export const getTodos = async (): Promise<ToDoItem[]> => {
 };
 
 export const saveTodo = async (todo: ToDoItem) => {
-    await db.todos.put(todo);
+    await putVersioned(db.todos, todo);
     await syncToFirebase(dbRefs.todo, todo, 'todos');
 };
 
@@ -396,7 +450,7 @@ export const getTransactions = async (): Promise<Transaction[]> => {
 };
 
 export const addTransaction = async (tx: Transaction) => {
-    await db.transactions.put(tx);
+    await putVersioned(db.transactions, tx);
     await syncToFirebase(dbRefs.transaction, tx, 'transactions');
 };
 
@@ -406,7 +460,7 @@ export const deleteTransaction = async (id: string) => {
 };
 
 export const updateTransaction = async (tx: Transaction) => {
-    await db.transactions.put(tx);
+    await putVersioned(db.transactions, tx);
     await syncToFirebase(dbRefs.transaction, tx, 'transactions');
 };
 
@@ -416,7 +470,7 @@ export const getCampaigns = async (): Promise<Campaign[]> => {
 };
 
 export const saveCampaign = async (camp: Campaign) => {
-    await db.campaigns.put(camp);
+    await putVersioned(db.campaigns, camp);
     await syncToFirebase(dbRefs.campaign, camp, 'campaigns');
 };
 
@@ -430,14 +484,14 @@ export const getAttendanceByStudent = async (studentId: string): Promise<Attenda
 };
 
 export const saveAttendance = async (records: AttendanceRecord[]) => {
-    await db.attendance.bulkPut(records);
+    await bulkPutVersioned(db.attendance, records);
     for (const record of records) {
         await syncToFirebase(dbRefs.attendanceRecord, record, 'attendance');
     }
 };
 
 export const updateAttendanceRecord = async (record: AttendanceRecord) => {
-    await db.attendance.put(record);
+    await putVersioned(db.attendance, record);
     await syncToFirebase(dbRefs.attendanceRecord, record, 'attendance');
 };
 
@@ -447,7 +501,7 @@ export const getExcuseRequests = async (): Promise<ExcuseRequest[]> => {
 };
 
 export const addExcuseRequest = async (req: ExcuseRequest) => {
-    await db.excuses.put(req);
+    await putVersioned(db.excuses, req);
     await syncToFirebase(dbRefs.excuse, req, 'excuses');
 };
 
@@ -455,7 +509,7 @@ export const updateExcuseStatus = async (id: string, status: 'APPROVED' | 'REJEC
     const excuse = await db.excuses.get(id);
     if (excuse) {
         excuse.status = status;
-        await db.excuses.put(excuse);
+        await putVersioned(db.excuses, excuse);
         await syncToFirebase(dbRefs.excuse, excuse, 'excuses');
     }
 };
@@ -466,7 +520,7 @@ export const getComplaints = async (): Promise<AttendanceComplaint[]> => {
 };
 
 export const fileComplaint = async (comp: AttendanceComplaint) => {
-    await db.complaints.put(comp);
+    await putVersioned(db.complaints, comp);
     await syncToFirebase(dbRefs.complaint, comp, 'complaints');
 };
 
@@ -474,7 +528,7 @@ export const resolveComplaint = async (id: string, status: 'APPROVED' | 'REJECTE
     const complaint = await db.complaints.get(id);
     if (complaint) {
         complaint.status = status;
-        await db.complaints.put(complaint);
+        await putVersioned(db.complaints, complaint);
         await syncToFirebase(dbRefs.complaint, complaint, 'complaints');
     }
 };
@@ -532,7 +586,7 @@ export const getAnnouncements = async (): Promise<Announcement[]> => {
 };
 
 export const addAnnouncement = async (ann: Announcement) => {
-    await db.announcements.put(ann);
+    await putVersioned(db.announcements, ann);
     await syncToFirebase(dbRefs.announcement, ann, 'announcements');
 };
 
@@ -542,7 +596,7 @@ export const getSchedule = async (): Promise<ClassSchedule[]> => {
 };
 
 export const saveScheduleItem = async (item: ClassSchedule) => {
-    await db.schedule.put(item);
+    await putVersioned(db.schedule, item);
     await syncToFirebase(dbRefs.scheduleItem, item, 'schedule');
 };
 
@@ -571,10 +625,11 @@ export const getSettings = async (): Promise<ClassSettings> => {
 };
 
 export const updateSettings = async (settings: ClassSettings) => {
-    await db.settings.put({ ...settings, id: 'main' } as any);
+    const versionedSettings = withVersion({ ...settings, id: 'main' } as any);
+    await db.settings.put(versionedSettings);
     if (isOnline()) {
         try {
-            await dbHelpers.setData(dbRefs.settings(), settings);
+            await dbHelpers.setData(dbRefs.settings(), versionedSettings);
         } catch (error) {
             console.error('Settings sync error:', error);
         }
@@ -588,7 +643,7 @@ export const getAlbum = async (): Promise<AlbumImage[]> => {
 };
 
 export const saveAlbum = async (album: AlbumImage[]) => {
-    await db.album.bulkPut(album);
+    await bulkPutVersioned(db.album, album);
     for (const img of album) {
         await syncToFirebase(dbRefs.albumImage, img, 'album');
     }
@@ -600,7 +655,7 @@ export const getAchievements = async (): Promise<Achievement[]> => {
 };
 
 export const saveAchievements = async (ach: Achievement[]) => {
-    await db.achievements.bulkPut(ach);
+    await bulkPutVersioned(db.achievements, ach);
     for (const a of ach) {
         await syncToFirebase(dbRefs.achievement, a, 'achievements');
     }
@@ -612,7 +667,7 @@ export const getFeedbacks = async (): Promise<Feedback[]> => {
 };
 
 export const saveFeedback = async (feedback: Feedback) => {
-    await db.feedback.put(feedback);
+    await putVersioned(db.feedback, feedback);
     await syncToFirebase(dbRefs.feedbackItem, feedback, 'feedback');
 };
 
@@ -658,7 +713,7 @@ export const getJournalEntryByDate = async (userId: string, date: string): Promi
 };
 
 export const saveJournalEntry = async (entry: JournalEntry) => {
-    const updatedEntry = { ...entry, updatedAt: Date.now() };
+    const updatedEntry = withVersion({ ...entry, updatedAt: Date.now() });
     await db.journal.put(updatedEntry);
     await syncToFirebase(dbRefs.journalEntry, updatedEntry, 'journal');
 };
@@ -682,3 +737,5 @@ export const searchJournalEntries = async (userId: string, query: string): Promi
 
 // --- Sync Helpers for Components ---
 export { isOnline } from './db';
+export const getPendingSyncCount = () => pendingSyncCount;
+export const getLastSyncAt = () => lastSyncAt;

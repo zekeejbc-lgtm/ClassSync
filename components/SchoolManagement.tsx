@@ -262,6 +262,145 @@ const SchoolCard: React.FC<SchoolCardProps> = ({ school, onClick, onEdit, onDele
 };
 
 // ==========================================
+// SCHOOL LIST ITEM COMPONENT
+// ==========================================
+
+interface SchoolListItemProps {
+    school: School;
+    onClick: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+    canEdit: boolean;
+}
+
+const SchoolListItem: React.FC<SchoolListItemProps> = ({ school, onClick, onEdit, onDelete, canEdit }) => {
+    return (
+        <div 
+            className="flex items-center gap-4 p-3 bg-white dark:bg-stone-800 rounded-lg border border-stone-200 dark:border-stone-700 hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
+            onClick={onClick}
+        >
+            {school.logoUrl ? (
+                <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-stone-100 dark:bg-stone-700">
+                    <img 
+                        src={getImageUrl(school.logoUrl)} 
+                        alt={school.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                        }}
+                    />
+                </div>
+            ) : (
+                <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600 flex-shrink-0">
+                    <Building2 size={20} />
+                </div>
+            )}
+            
+            <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-stone-900 dark:text-white truncate">{school.name}</h3>
+                <p className="text-sm text-stone-500 flex items-center gap-1 mt-1">
+                    <MapPin size={14} /> {school.address || 'No address'}
+                </p>
+            </div>
+            
+            {school.contactNumber && (
+                <div className="hidden sm:flex items-center gap-1 text-stone-500">
+                    <Phone size={14} /> {school.contactNumber}
+                </div>
+            )}
+            
+            <div className="flex items-center gap-2">
+                {canEdit && (
+                    <>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                            className="p-2 text-stone-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                            <Edit3 size={16} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                            className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    </>
+                )}
+                <ChevronRight className="text-stone-400 group-hover:text-amber-500 transition-colors" />
+            </div>
+        </div>
+    );
+};
+
+// ==========================================
+// GENERIC LIST ITEM COMPONENT
+// ==========================================
+
+interface ListItemProps {
+    item: any;
+    level: NavigationLevel;
+    onClick: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+    canEdit: boolean;
+}
+
+const ListItem: React.FC<ListItemProps> = ({ item, level, onClick, onEdit, onDelete, canEdit }) => {
+    const getIcon = () => {
+        switch (level) {
+            case 'departments': return <Building2 size={20} />;
+            case 'colleges': return <GraduationCap size={20} />;
+            case 'programs': return <BookOpen size={20} />;
+            case 'tracks': return <Layers size={20} />;
+            case 'strands': return <BookOpen size={20} />;
+            case 'majors': return <GraduationCap size={20} />;
+            case 'yearLevels': return <Layers size={20} />;
+            case 'sections': return <Users size={20} />;
+            case 'members': return <UserIcon size={20} />;
+            default: return <Building2 size={20} />;
+        }
+    };
+
+    return (
+        <div 
+            className="flex items-center gap-4 p-3 bg-white dark:bg-stone-800 rounded-lg border border-stone-200 dark:border-stone-700 hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
+            onClick={onClick}
+        >
+            <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600 flex-shrink-0">
+                {getIcon()}
+            </div>
+            
+            <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-stone-900 dark:text-white truncate">{item.name}</h3>
+                {item.abbreviation && (
+                    <p className="text-sm text-stone-500">{item.abbreviation}</p>
+                )}
+            </div>
+            
+            <div className="flex items-center gap-2">
+                {canEdit && level !== 'members' && (
+                    <>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                            className="p-2 text-stone-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                            <Edit3 size={16} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                            className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    </>
+                )}
+                <ChevronRight className="text-stone-400 group-hover:text-amber-500 transition-colors" />
+            </div>
+        </div>
+    );
+};
+
+// ==========================================
 // SCHOOL MANAGEMENT COMPONENT
 // ==========================================
 
@@ -309,6 +448,7 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMember, setSelectedMember] = useState<User | null>(null);
     const [showMemberModal, setShowMemberModal] = useState(false);
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     
     const canEdit = PERMISSIONS.CAN_MANAGE_USERS.includes(user.role);
 
@@ -716,6 +856,32 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
                                 <RefreshCcw size={18} />
                             </button>
                             
+                            {/* View Toggle */}
+                            <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 rounded-lg p-1">
+                                <button
+                                    onClick={() => setViewMode('grid')}
+                                    className={`p-2 rounded transition-colors ${
+                                        viewMode === 'grid'
+                                            ? 'bg-white dark:bg-stone-700 text-amber-600 shadow-sm'
+                                            : 'text-stone-400 hover:text-stone-600'
+                                    }`}
+                                    title="Grid View"
+                                >
+                                    <LayoutGrid size={18} />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('list')}
+                                    className={`p-2 rounded transition-colors ${
+                                        viewMode === 'list'
+                                            ? 'bg-white dark:bg-stone-700 text-amber-600 shadow-sm'
+                                            : 'text-stone-400 hover:text-stone-600'
+                                    }`}
+                                    title="List View"
+                                >
+                                    <List size={18} />
+                                </button>
+                            </div>
+                            
                             {canEdit && navState.level !== 'members' && (
                                 <button 
                                     onClick={() => { setEditingItem(null); setShowCreateModal(true); }}
@@ -745,9 +911,34 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
                                 </button>
                             )}
                         </div>
-                    ) : (
+                    ) : viewMode === 'grid' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {getCurrentItems().map(item => renderCard(item))}
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {getCurrentItems().map(item => (
+                                <div key={item.id} className="group">
+                                    {navState.level === 'schools' ? (
+                                        <SchoolListItem
+                                            school={item as School}
+                                            onClick={() => handleItemClick(item)}
+                                            onEdit={() => { setEditingItem(item); setShowCreateModal(true); }}
+                                            onDelete={() => handleDelete(item.id)}
+                                            canEdit={canEdit}
+                                        />
+                                    ) : (
+                                        <ListItem
+                                            item={item}
+                                            level={navState.level}
+                                            onClick={() => handleItemClick(item)}
+                                            onEdit={() => { setEditingItem(item); setShowCreateModal(true); }}
+                                            onDelete={() => handleDelete(item.id)}
+                                            canEdit={canEdit}
+                                        />
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>

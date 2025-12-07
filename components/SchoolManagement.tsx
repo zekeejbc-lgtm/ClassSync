@@ -447,6 +447,8 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
     const [selectedMember, setSelectedMember] = useState<User | null>(null);
     const [showMemberModal, setShowMemberModal] = useState(false);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [deleteTarget, setDeleteTarget] = useState<{ item: any; childItems: { type: string; count: number; items: string[] }[] } | null>(null);
+    const [showMajorPrompt, setShowMajorPrompt] = useState(false);
     
     const canEdit = PERMISSIONS.CAN_MANAGE_USERS.includes(user.role);
 
@@ -599,6 +601,22 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
         }
     };
 
+    // Handle Add button click - check if Major creation is needed first
+    const handleAddClick = () => {
+        // Check if we're adding a YearLevel from a Program (not from a Major)
+        if (navState.level === 'yearLevels' && navState.programId && !navState.majorId) {
+            const existingMajors = getMajorsByProgram(navState.programId);
+            if (existingMajors.length === 0) {
+                // No majors exist - ask user if they want to create a major first
+                setShowMajorPrompt(true);
+                return;
+            }
+        }
+        // Proceed with normal creation
+        setEditingItem(null);
+        setShowCreateModal(true);
+    };
+
     // Handle item click
     const handleItemClick = (item: any) => {
         switch (navState.level) {
@@ -651,8 +669,166 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
     };
 
     // Handle delete
+    const getChildItemsForDeletion = (item: any): { type: string; count: number; items: string[] }[] => {
+        const children: { type: string; count: number; items: string[] }[] = [];
+        
+        switch (navState.level) {
+            case 'schools': {
+                const depts = getDepartments().filter(d => d.schoolId === item.id);
+                if (depts.length > 0) {
+                    children.push({ type: 'Departments', count: depts.length, items: depts.slice(0, 5).map(d => d.name) });
+                }
+                const cols = getColleges().filter(c => c.schoolId === item.id);
+                if (cols.length > 0) {
+                    children.push({ type: 'Colleges', count: cols.length, items: cols.slice(0, 5).map(c => c.name) });
+                }
+                const trks = getTracks().filter(t => t.schoolId === item.id);
+                if (trks.length > 0) {
+                    children.push({ type: 'Tracks', count: trks.length, items: trks.slice(0, 5).map(t => t.name) });
+                }
+                const prgs = getPrograms().filter(p => p.schoolId === item.id);
+                if (prgs.length > 0) {
+                    children.push({ type: 'Programs', count: prgs.length, items: prgs.slice(0, 5).map(p => p.name) });
+                }
+                const strs = getStrands().filter(s => s.schoolId === item.id);
+                if (strs.length > 0) {
+                    children.push({ type: 'Strands', count: strs.length, items: strs.slice(0, 5).map(s => s.name) });
+                }
+                const mjrs = getMajors().filter(m => m.schoolId === item.id);
+                if (mjrs.length > 0) {
+                    children.push({ type: 'Majors', count: mjrs.length, items: mjrs.slice(0, 5).map(m => m.name) });
+                }
+                const yls = getYearLevels().filter(y => y.schoolId === item.id);
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.schoolId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'departments': {
+                const cols = getColleges().filter(c => c.departmentId === item.id);
+                if (cols.length > 0) {
+                    children.push({ type: 'Colleges', count: cols.length, items: cols.slice(0, 5).map(c => c.name) });
+                }
+                const trks = getTracks().filter(t => t.departmentId === item.id);
+                if (trks.length > 0) {
+                    children.push({ type: 'Tracks', count: trks.length, items: trks.slice(0, 5).map(t => t.name) });
+                }
+                const yls = getYearLevels().filter(y => y.departmentId === item.id);
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.departmentId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'colleges': {
+                const prgs = getPrograms().filter(p => p.collegeId === item.id);
+                if (prgs.length > 0) {
+                    children.push({ type: 'Programs', count: prgs.length, items: prgs.slice(0, 5).map(p => p.name) });
+                }
+                const mjrs = getMajors().filter(m => m.collegeId === item.id);
+                if (mjrs.length > 0) {
+                    children.push({ type: 'Majors', count: mjrs.length, items: mjrs.slice(0, 5).map(m => m.name) });
+                }
+                // Year levels under college are found through programs
+                const programIds = prgs.map(p => p.id);
+                const yls = getYearLevels().filter(y => y.programId && programIds.includes(y.programId));
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.collegeId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'tracks': {
+                const strs = getStrands().filter(s => s.trackId === item.id);
+                if (strs.length > 0) {
+                    children.push({ type: 'Strands', count: strs.length, items: strs.slice(0, 5).map(s => s.name) });
+                }
+                // Year levels under tracks are found through strands
+                const strandIds = strs.map(s => s.id);
+                const yls = getYearLevels().filter(y => y.strandId && strandIds.includes(y.strandId));
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.trackId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'programs': {
+                const mjrs = getMajors().filter(m => m.programId === item.id);
+                if (mjrs.length > 0) {
+                    children.push({ type: 'Majors', count: mjrs.length, items: mjrs.slice(0, 5).map(m => m.name) });
+                }
+                const yls = getYearLevels().filter(y => y.programId === item.id);
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.programId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'strands': {
+                const yls = getYearLevels().filter(y => y.strandId === item.id);
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.strandId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'majors': {
+                const yls = getYearLevels().filter(y => y.majorId === item.id);
+                if (yls.length > 0) {
+                    children.push({ type: 'Year Levels', count: yls.length, items: yls.slice(0, 5).map(y => y.name) });
+                }
+                const secs = getSections().filter(s => s.majorId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'yearLevels': {
+                const secs = getSections().filter(s => s.yearLevelId === item.id);
+                if (secs.length > 0) {
+                    children.push({ type: 'Sections', count: secs.length, items: secs.slice(0, 5).map(s => s.name) });
+                }
+                break;
+            }
+            case 'sections': {
+                const users = getUsersBySection(item.id);
+                if (users.length > 0) {
+                    children.push({ type: 'Members', count: users.length, items: users.slice(0, 5).map(u => u.fullName || u.username) });
+                }
+                break;
+            }
+        }
+        
+        return children;
+    };
+    
     const handleDelete = (item: any) => {
-        if (!confirm(`Are you sure you want to delete "${item.name || item.fullName}"?`)) return;
+        const childItems = getChildItemsForDeletion(item);
+        setDeleteTarget({ item, childItems });
+    };
+    
+    const confirmDelete = () => {
+        if (!deleteTarget) return;
+        const { item } = deleteTarget;
         
         switch (navState.level) {
             case 'schools': deleteSchool(item.id); break;
@@ -667,6 +843,7 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
         }
         loadData();
         showToast('Deleted successfully', 'success');
+        setDeleteTarget(null);
     };
 
     // Render card for each item
@@ -882,7 +1059,7 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
                             
                             {canEdit && navState.level !== 'members' && (
                                 <button 
-                                    onClick={() => { setEditingItem(null); setShowCreateModal(true); }}
+                                    onClick={handleAddClick}
                                     className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm font-medium"
                                 >
                                     <Plus size={18} /> Add {getLevelTitle().slice(0, -1)}
@@ -902,7 +1079,7 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
                             <p className="font-medium">No {getLevelTitle().toLowerCase()} found</p>
                             {canEdit && navState.level !== 'members' && (
                                 <button 
-                                    onClick={() => { setEditingItem(null); setShowCreateModal(true); }}
+                                    onClick={handleAddClick}
                                     className="mt-4 text-amber-600 hover:text-amber-700 text-sm font-medium flex items-center gap-1 mx-auto"
                                 >
                                     <Plus size={16} /> Create your first {getLevelTitle().slice(0, -1).toLowerCase()}
@@ -963,6 +1140,143 @@ export const SchoolManagement: React.FC<SchoolManagementProps> = ({ user }) => {
                     onUpdate={() => { loadData(); }}
                 />
             )}
+
+            {/* Delete Confirmation Modal */}
+            {deleteTarget && (
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setDeleteTarget(null)}>
+                        <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+                            <div className="p-6 border-b border-stone-200 dark:border-stone-700 bg-red-50 dark:bg-red-900/20">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
+                                        <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold text-red-800 dark:text-red-200">Confirm Deletion</h2>
+                                        <p className="text-sm text-red-600 dark:text-red-300">This action cannot be undone</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="p-6 space-y-4">
+                                <p className="text-stone-700 dark:text-stone-300">
+                                    Are you sure you want to delete <strong className="text-stone-900 dark:text-white">"{deleteTarget.item.name || deleteTarget.item.fullName}"</strong>?
+                                </p>
+                                
+                                {deleteTarget.childItems.length > 0 && (
+                                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-3 flex items-center gap-2">
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                            </svg>
+                                            The following items will also be deleted:
+                                        </p>
+                                        <div className="space-y-3">
+                                            {deleteTarget.childItems.map((child, idx) => (
+                                                <div key={idx} className="bg-white dark:bg-stone-900/50 rounded-lg p-3">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="font-medium text-stone-800 dark:text-stone-200">{child.type}</span>
+                                                        <span className="text-xs bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-2 py-1 rounded-full">
+                                                            {child.count} item{child.count > 1 ? 's' : ''}
+                                                        </span>
+                                                    </div>
+                                                    <ul className="text-sm text-stone-600 dark:text-stone-400 space-y-1">
+                                                        {child.items.map((name, i) => (
+                                                            <li key={i} className="flex items-center gap-2">
+                                                                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full"></span>
+                                                                <span className="truncate">{name}</span>
+                                                            </li>
+                                                        ))}
+                                                        {child.count > 5 && (
+                                                            <li className="text-stone-500 dark:text-stone-500 italic">...and {child.count - 5} more</li>
+                                                        )}
+                                                    </ul>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div className="p-6 border-t border-stone-200 dark:border-stone-700 flex items-center justify-end gap-3 bg-stone-50 dark:bg-stone-900/50">
+                                <button 
+                                    onClick={() => setDeleteTarget(null)} 
+                                    className="px-4 py-2 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={confirmDelete}
+                                    className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                                >
+                                    <Trash2 size={18} /> Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
+
+            {/* Major Creation Prompt Modal */}
+            {showMajorPrompt && (
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowMajorPrompt(false)}>
+                        <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+                            <div className="p-6 border-b border-stone-200 dark:border-stone-700 bg-amber-50 dark:bg-amber-900/20">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                                        <BookOpen className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold text-amber-800 dark:text-amber-200">Create Major First?</h2>
+                                        <p className="text-sm text-amber-600 dark:text-amber-300">Organize your program better</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="p-6 space-y-4">
+                                <p className="text-stone-700 dark:text-stone-300">
+                                    This program doesn't have any <strong>Majors</strong> yet. Would you like to create a Major first before adding Year Levels?
+                                </p>
+                                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                                        <strong>Tip:</strong> Majors help organize students within a program. For example, a "Computer Science" program might have majors like "Software Engineering" or "Data Science".
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div className="p-6 border-t border-stone-200 dark:border-stone-700 flex flex-col sm:flex-row items-center gap-3 bg-stone-50 dark:bg-stone-900/50">
+                                <button 
+                                    onClick={() => {
+                                        setShowMajorPrompt(false);
+                                        // Navigate to majors view to create a major
+                                        if (navState.programId) {
+                                            const program = getPrograms().find(p => p.id === navState.programId);
+                                            if (program) {
+                                                setBreadcrumbs(prev => [...prev, { label: 'Majors', level: 'yearLevels', state: navState }]);
+                                                setNavState({ ...navState, level: 'majors' });
+                                            }
+                                        }
+                                    }}
+                                    className="w-full sm:w-auto px-6 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Plus size={18} /> Create Major First
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        setShowMajorPrompt(false);
+                                        setEditingItem(null);
+                                        setShowCreateModal(true);
+                                    }}
+                                    className="w-full sm:w-auto px-4 py-2 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors"
+                                >
+                                    Skip, Add Year Level Directly
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </ModalPortal>
+            )}
         </div>
     );
 };
@@ -989,6 +1303,7 @@ const CreateEditModal: React.FC<CreateEditModalProps> = ({ level, navState, edit
     const [abbreviation, setAbbreviation] = useState(editingItem?.abbreviation || '');
     const [address, setAddress] = useState(editingItem?.address || '');
     const [logoUrl, setLogoUrl] = useState(editingItem?.logoUrl || '');
+    const [classLogoUrl, setClassLogoUrl] = useState(editingItem?.classLogoUrl || '');
     const [googleMapUrl, setGoogleMapUrl] = useState(editingItem?.googleMapUrl || '');
     const [contactNumber, setContactNumber] = useState(editingItem?.contactNumber || '');
     const [socialLinks, setSocialLinks] = useState<{id: string; platform: string; url: string}[]>(editingItem?.socialLinks || []);
@@ -998,6 +1313,38 @@ const CreateEditModal: React.FC<CreateEditModalProps> = ({ level, navState, edit
     const [order, setOrder] = useState<number>(editingItem?.order || 1);
     
     const [isSaving, setIsSaving] = useState(false);
+    
+    // Determine department type for YearLevel dropdown options
+    const getDepartmentTypeForYearLevel = (): DepartmentType => {
+        const dept = getDepartments().find(d => d.id === navState.departmentId);
+        return dept?.type || 'TERTIARY';
+    };
+    
+    // Year level options based on department type
+    const getYearLevelOptions = () => {
+        const deptType = getDepartmentTypeForYearLevel();
+        if (deptType === 'TERTIARY') {
+            return [
+                { value: '1st Year', label: '1st Year', order: 1 },
+                { value: '2nd Year', label: '2nd Year', order: 2 },
+                { value: '3rd Year', label: '3rd Year', order: 3 },
+                { value: '4th Year', label: '4th Year', order: 4 },
+                { value: '5th Year', label: '5th Year', order: 5 },
+            ];
+        } else if (deptType === 'SENIOR_HIGH') {
+            return [
+                { value: 'Grade 11', label: 'Grade 11', order: 11 },
+                { value: 'Grade 12', label: 'Grade 12', order: 12 },
+            ];
+        } else { // JUNIOR_HIGH
+            return [
+                { value: 'Grade 7', label: 'Grade 7', order: 7 },
+                { value: 'Grade 8', label: 'Grade 8', order: 8 },
+                { value: 'Grade 9', label: 'Grade 9', order: 9 },
+                { value: 'Grade 10', label: 'Grade 10', order: 10 },
+            ];
+        }
+    };
 
     const handleSave = () => {
         if (!name.trim()) {
@@ -1125,11 +1472,13 @@ const CreateEditModal: React.FC<CreateEditModalProps> = ({ level, navState, edit
                     break;
                 case 'sections':
                     if (isEditing) {
-                        updateSection({ ...editingItem, name });
+                        updateSection({ ...editingItem, name, logoUrl, classLogoUrl });
                     } else {
                         const yearLevel = getYearLevels().find(y => y.id === navState.yearLevelId);
                         addSection({ 
                             name, 
+                            logoUrl,
+                            classLogoUrl,
                             yearLevelId: navState.yearLevelId!,
                             majorId: yearLevel?.majorId || navState.majorId,
                             programId: yearLevel?.programId || navState.programId,
@@ -1180,17 +1529,39 @@ const CreateEditModal: React.FC<CreateEditModalProps> = ({ level, navState, edit
                     </div>
                     
                     <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-                        {/* Name field - always present */}
-                        <div>
-                            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Name *</label>
-                            <input
-                                type="text"
-                                value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder={level === 'schools' ? 'University of Southeastern Philippines' : 'Enter name'}
-                            className="w-full px-4 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                        />
-                    </div>
+                        {/* Name field - dropdown for yearLevels, text input for others */}
+                        {level === 'yearLevels' ? (
+                            <div>
+                                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Year Level *</label>
+                                <select
+                                    value={name}
+                                    onChange={(e) => {
+                                        const selectedOption = getYearLevelOptions().find(opt => opt.value === e.target.value);
+                                        setName(e.target.value);
+                                        if (selectedOption) {
+                                            setOrder(selectedOption.order);
+                                        }
+                                    }}
+                                    className="w-full px-4 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                >
+                                    <option value="">Select Year Level</option>
+                                    {getYearLevelOptions().map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Name *</label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    placeholder={level === 'schools' ? 'University of Southeastern Philippines' : 'Enter name'}
+                                    className="w-full px-4 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                />
+                            </div>
+                        )}
 
                     {/* School-specific fields */}
                     {level === 'schools' && (
@@ -1378,6 +1749,55 @@ const CreateEditModal: React.FC<CreateEditModalProps> = ({ level, navState, edit
                                 className="w-full px-4 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                             />
                         </div>
+                    )}
+
+                    {/* Section Logo fields */}
+                    {level === 'sections' && (
+                        <>
+                            {/* Section Logo (Optional) */}
+                            <div>
+                                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Section Logo (Optional)</label>
+                                <div className="flex items-start gap-4">
+                                    {logoUrl && (
+                                        <div className="w-16 h-16 rounded-lg overflow-hidden bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 flex-shrink-0">
+                                            <img src={getImageUrl(logoUrl)} alt="Section Logo" className="w-full h-full object-contain" />
+                                        </div>
+                                    )}
+                                    <div className="flex-1">
+                                        <FileUploader
+                                            label="Upload Section Logo"
+                                            initialUrl={logoUrl}
+                                            onUpload={(url) => setLogoUrl(url)}
+                                            accept="image/*"
+                                            uploadAction="uploadSectionLogo"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">A unique logo for this section (optional)</p>
+                            </div>
+                            
+                            {/* Class Logo */}
+                            <div>
+                                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Class Logo</label>
+                                <div className="flex items-start gap-4">
+                                    {classLogoUrl && (
+                                        <div className="w-16 h-16 rounded-lg overflow-hidden bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 flex-shrink-0">
+                                            <img src={getImageUrl(classLogoUrl)} alt="Class Logo" className="w-full h-full object-contain" />
+                                        </div>
+                                    )}
+                                    <div className="flex-1">
+                                        <FileUploader
+                                            label="Upload Class Logo"
+                                            initialUrl={classLogoUrl}
+                                            onUpload={(url) => setClassLogoUrl(url)}
+                                            accept="image/*"
+                                            uploadAction="uploadClassLogo"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">The official class logo for this section</p>
+                            </div>
+                        </>
                     )}
 
                     {/* Order for year levels */}

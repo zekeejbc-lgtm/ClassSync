@@ -155,6 +155,7 @@ function handleRequest(action, payload) {
       case 'uploadToFolder': result = uploadToFolder(payload); break;
       case 'uploadSchoolLogo': result = uploadSchoolLogo(payload); break;
       case 'uploadClassLogo': result = uploadClassLogo(payload); break;
+      case 'uploadSectionLogo': result = uploadSectionLogo(payload); break;
       
       // Data Operations
       case 'getTodos': result = getData('Todos'); break;
@@ -988,6 +989,37 @@ function uploadClassLogo(payload) {
       success: false,
       error: error.toString(),
       errorCode: 'ERR_UPLOAD_CLASS_LOGO'
+    };
+  }
+}
+
+/**
+ * Upload a Section Logo to the dedicated Class Logos folder (shared with class logos)
+ */
+function uploadSectionLogo(payload) {
+  const { data, mimeType, filename } = payload;
+  
+  try {
+    const decodedData = Utilities.base64Decode(data);
+    const blob = Utilities.newBlob(decodedData, mimeType, filename || 'section_logo_' + Date.now());
+    
+    const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDERS.CLASS_LOGOS);
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    const url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+    
+    return {
+      success: true,
+      url: url,
+      fileId: file.getId(),
+      fileName: file.getName()
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.toString(),
+      errorCode: 'ERR_UPLOAD_SECTION_LOGO'
     };
   }
 }

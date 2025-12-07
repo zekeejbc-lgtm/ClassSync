@@ -178,7 +178,7 @@ const SchoolCard: React.FC<SchoolCardProps> = ({ school, onClick, onEdit, onDele
     
     return (
         <div 
-            className="bg-white dark:bg-stone-800 rounded-xl p-4 hover:shadow-lg transition-all cursor-pointer group flex flex-col h-full"
+            className="bg-white dark:bg-stone-800 rounded-xl p-4 hover:shadow-lg transition-all cursor-pointer group flex flex-col min-h-fit"
             style={{ 
                 border: borderColor ? `2px solid ${borderColor}` : '1px solid rgb(231, 229, 228)',
                 borderColor: borderColor || undefined
@@ -207,7 +207,7 @@ const SchoolCard: React.FC<SchoolCardProps> = ({ school, onClick, onEdit, onDele
                         </div>
                     )}
                     <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold text-stone-900 dark:text-white text-sm leading-tight line-clamp-2">{school.name}</h3>
+                        <h3 className="font-semibold text-stone-900 dark:text-white text-sm leading-snug break-words">{school.name}</h3>
                     </div>
                 </div>
                 

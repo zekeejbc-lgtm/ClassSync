@@ -114,7 +114,7 @@ async function simulateApiCall<T extends ApiResponse>(action: string, payload: a
                 success: true,
                 valid: true,
                 exists: false
-            } as T;
+            } as unknown as T;
         }
 
         case 'sendOTP': {
@@ -138,7 +138,7 @@ async function simulateApiCall<T extends ApiResponse>(action: string, payload: a
                 success: true,
                 message: 'Verification code sent to your email',
                 devOtp: devOtpCode
-            } as T;
+            } as unknown as T;
         }
 
         case 'verifyOTP': {
@@ -148,7 +148,7 @@ async function simulateApiCall<T extends ApiResponse>(action: string, payload: a
                 return {
                     success: true,
                     verified: true
-                } as T;
+                } as unknown as T;
             }
 
             return {
@@ -166,7 +166,7 @@ async function simulateApiCall<T extends ApiResponse>(action: string, payload: a
                 success: true,
                 url: payload.dataUrl || 'https://via.placeholder.com/200',
                 fileId: fakeFileId
-            } as T;
+            } as unknown as T;
         }
 
         case 'completeRegistration': {
@@ -195,7 +195,7 @@ async function simulateApiCall<T extends ApiResponse>(action: string, payload: a
                     fullName,
                     email: universityEmail
                 }
-            } as T;
+            } as unknown as T;
         }
 
         default:

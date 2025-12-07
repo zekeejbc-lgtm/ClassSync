@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Announcement, UserRole } from '../types';
+import { User, Announcement, UserRole, UserPosition } from '../types';
 import { getAnnouncements, getTodos } from '../services/dataService';
 import { Bell, CheckSquare, Calendar, UserCheck, BookOpen, GraduationCap, DollarSign } from 'lucide-react';
 import { LOGO_URL } from '../constants';
@@ -186,7 +186,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm border border-stone-200 dark:border-stone-700 p-4 transition-colors">
                 <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-3">Management</h3>
                 <div className="space-y-2">
-                    {[UserRole.ADMIN, UserRole.SECRETARY, UserRole.MAYOR, UserRole.ASST_SECRETARY].includes(user.role) && (
+                    {([UserRole.ADMIN].includes(user.role) || [UserPosition.SECRETARY, UserPosition.MAYOR, UserPosition.ASST_SECRETARY].includes(user.position!)) && (
                     <button 
                         onClick={() => navigate('/attendance')}
                         className="w-full text-left px-4 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors text-sm font-medium flex items-center"
@@ -195,7 +195,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                         Take Attendance
                     </button>
                     )}
-                    {[UserRole.ADMIN, UserRole.TREASURER, UserRole.AUDITOR].includes(user.role) && (
+                    {([UserRole.ADMIN].includes(user.role) || [UserPosition.TREASURER, UserPosition.AUDITOR].includes(user.position!)) && (
                     <button 
                         onClick={() => navigate('/finance')}
                         className="w-full text-left px-4 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors text-sm font-medium flex items-center"

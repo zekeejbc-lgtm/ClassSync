@@ -463,6 +463,8 @@ export interface Section {
     schoolId: string;
     
     name: string; // e.g., "1SF", "Section A", "Einstein"
+    logoUrl?: string; // Section logo (optional)
+    classLogoUrl?: string; // Class logo from Google Drive
     adviser?: string; // User ID of the section adviser
     createdAt: number;
     createdBy: string;

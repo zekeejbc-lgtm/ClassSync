@@ -178,84 +178,82 @@ const SchoolCard: React.FC<SchoolCardProps> = ({ school, onClick, onEdit, onDele
     
     return (
         <div 
-            className="bg-white dark:bg-stone-800 rounded-xl p-4 hover:shadow-lg transition-all cursor-pointer group"
+            className="bg-white dark:bg-stone-800 rounded-xl p-4 hover:shadow-lg transition-all cursor-pointer group flex flex-col h-full"
             style={{ 
                 border: borderColor ? `2px solid ${borderColor}` : '1px solid rgb(231, 229, 228)',
                 borderColor: borderColor || undefined
             }}
             onClick={onClick}
         >
-            <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                        {school.logoUrl ? (
-                            <div 
-                                className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-stone-100 dark:bg-stone-700"
-                                style={borderColor ? { boxShadow: `0 0 0 2px ${borderColor}20` } : {}}
-                            >
-                                <img 
-                                    src={getImageUrl(school.logoUrl)} 
-                                    alt={school.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                    }}
-                                />
-                            </div>
-                        ) : (
-                            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600">
-                                {getLevelIcon()}
-                            </div>
-                        )}
-                        <div>
-                            <h3 className="font-semibold text-stone-900 dark:text-white truncate">{school.name}</h3>
+            <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {school.logoUrl ? (
+                        <div 
+                            className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-stone-100 dark:bg-stone-700"
+                            style={borderColor ? { boxShadow: `0 0 0 2px ${borderColor}20` } : {}}
+                        >
+                            <img 
+                                src={getImageUrl(school.logoUrl)} 
+                                alt={school.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                }}
+                            />
                         </div>
-                    </div>
-                    
-                    <div className="space-y-1 mt-3">
-                        {school.address && (
-                            <p className="text-xs text-stone-500 flex items-center gap-1">
-                                <MapPin size={12} /> {school.address}
-                            </p>
-                        )}
-                        {school.contactNumber && (
-                            <p className="text-xs text-stone-500 flex items-center gap-1">
-                                <Phone size={12} /> {school.contactNumber}
-                            </p>
-                        )}
-                        {school.googleMapUrl && (
-                            <a 
-                                href={school.googleMapUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-500 hover:underline flex items-center gap-1"
-                                onClick={e => e.stopPropagation()}
-                            >
-                                <ExternalLink size={12} /> View on Map
-                            </a>
-                        )}
+                    ) : (
+                        <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600 flex-shrink-0">
+                            {getLevelIcon()}
+                        </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-stone-900 dark:text-white text-sm leading-tight line-clamp-2">{school.name}</h3>
                     </div>
                 </div>
                 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-shrink-0">
                     {canEdit && (
                         <>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                                className="p-2 text-stone-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                className="p-1.5 text-stone-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                             >
-                                <Edit3 size={16} />
+                                <Edit3 size={14} />
                             </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                                className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                             >
-                                <Trash2 size={16} />
+                                <Trash2 size={14} />
                             </button>
                         </>
                     )}
-                    <ChevronRight className="text-stone-400 group-hover:text-amber-500 transition-colors" />
+                    <ChevronRight className="text-stone-400 group-hover:text-amber-500 transition-colors flex-shrink-0" size={18} />
                 </div>
+            </div>
+            
+            <div className="space-y-1 flex-1">
+                {school.address && (
+                    <p className="text-xs text-stone-500 flex items-center gap-1 line-clamp-2">
+                        <MapPin size={12} className="flex-shrink-0" /> <span className="truncate">{school.address}</span>
+                    </p>
+                )}
+                {school.contactNumber && (
+                    <p className="text-xs text-stone-500 flex items-center gap-1 truncate">
+                        <Phone size={12} className="flex-shrink-0" /> {school.contactNumber}
+                    </p>
+                )}
+                {school.googleMapUrl && (
+                    <a 
+                        href={school.googleMapUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-500 hover:underline flex items-center gap-1 truncate"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <ExternalLink size={12} className="flex-shrink-0" /> <span className="truncate">View on Map</span>
+                    </a>
+                )}
             </div>
         </div>
     );
@@ -297,9 +295,9 @@ const SchoolListItem: React.FC<SchoolListItemProps> = ({ school, onClick, onEdit
             )}
             
             <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-stone-900 dark:text-white truncate">{school.name}</h3>
-                <p className="text-sm text-stone-500 flex items-center gap-1 mt-1">
-                    <MapPin size={14} /> {school.address || 'No address'}
+                <h3 className="font-semibold text-stone-900 dark:text-white line-clamp-2 text-sm">{school.name}</h3>
+                <p className="text-sm text-stone-500 flex items-center gap-1 mt-1 line-clamp-1">
+                    <MapPin size={14} className="flex-shrink-0" /> <span className="truncate">{school.address || 'No address'}</span>
                 </p>
             </div>
             
@@ -371,9 +369,9 @@ const ListItem: React.FC<ListItemProps> = ({ item, level, onClick, onEdit, onDel
             </div>
             
             <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-stone-900 dark:text-white truncate">{item.name}</h3>
+                <h3 className="font-semibold text-stone-900 dark:text-white line-clamp-2 text-sm">{item.name}</h3>
                 {item.abbreviation && (
-                    <p className="text-sm text-stone-500">{item.abbreviation}</p>
+                    <p className="text-sm text-stone-500 truncate">{item.abbreviation}</p>
                 )}
             </div>
             
